@@ -40,8 +40,11 @@ function context(w: number, h: number): OffscreenCanvasRenderingContext2D {
 
 /**
  * Renders every row as one native text run with the full font stack, and
- * separately draws each computed glyph with the font it was matched with at
- * its computed position, then compares both pixel by pixel.
+ * separately draws each computed glyph on its own with the font it was
+ * matched with, then compares both pixel by pixel. The separate glyphs
+ * advance by their own measured width at this exact font size, so a glyph
+ * that the run draws with another font (or shapes differently) shifts
+ * everything after it. Exact positions are checked by the page layout check.
  */
 /** Rows drawn or compared between checks for cancellation. */
 const VERIFY_SLICE = 32;
@@ -55,6 +58,7 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, s
   native.letterSpacing = `${LIGATURE_BREAKING_SPACING}px`;
   const computed = context(w, h);
   let font = -1;
+  const widths = new Map<number, number>();
   for (let r = 0; r < rows; r++) {
     if (r % VERIFY_SLICE === VERIFY_SLICE - 1) {
       await nextTask();
@@ -62,15 +66,21 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, s
     }
     const y = r * geo.cellH + geo.baselinePx;
     native.fillText(result.lines[r], 0, y);
-    const start = layout.rowOffsets[r];
-    for (let i = start; i < layout.rowOffsets[r + 1]; i++) {
+    let x = 0;
+    for (let i = layout.rowOffsets[r]; i < layout.rowOffsets[r + 1]; i++) {
       const g = layout.glyphs[i];
       if (result.glyphFont[g] !== font) {
         font = result.glyphFont[g];
         computed.font = cssFont(geo.fontPx, result.families[font]);
       }
-      const x = layout.positions[i] + (i - start) * LIGATURE_BREAKING_SPACING;
-      computed.fillText(String.fromCodePoint(result.glyphCodepoint[g]), x, y);
+      const ch = String.fromCodePoint(result.glyphCodepoint[g]);
+      let advance = widths.get(g);
+      if (advance === undefined) {
+        advance = computed.measureText(ch).width;
+        widths.set(g, advance);
+      }
+      computed.fillText(ch, x, y);
+      x += advance + LIGATURE_BREAKING_SPACING;
     }
   }
   const a = native.getImageData(0, 0, w, h).data;
