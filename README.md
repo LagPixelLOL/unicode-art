@@ -236,3 +236,7 @@ in `src/engine/backend.ts`. To add a backend, implement the interface (and a
 The fonts in `tests/fixtures/fonts/` are renamed subsets of the Liberation
 fonts, Noto Color Emoji, Noto Sans and Noto Sans Arabic, all under the SIL
 Open Font License 1.1 (see `tests/fixtures/fonts/OFL.txt`).
+
+## License
+
+MIT, see `LICENSE`. The test fonts keep their own license (see above).

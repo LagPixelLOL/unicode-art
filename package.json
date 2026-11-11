@@ -2,6 +2,7 @@
   "name": "unicode-art",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build:wasm": "wasm-pack build wasm --release --target web --out-dir pkg --out-name core --no-pack",
