@@ -76,8 +76,13 @@ export function textContext(w: number, h: number): OffscreenCanvasRenderingConte
   return ctx;
 }
 
+/** Glyphs drawn between checks for cancellation. */
+const RASTER_SLICE = 512;
+
+export const nextTask = () => new Promise<void>((r) => setTimeout(r, 0));
+
 /** Draws every glyph with its own font, white on black, page by page. */
-export async function* rasterizeGlyphs(req: RasterRequest): AsyncGenerator<GlyphPage> {
+export async function* rasterizeGlyphs(req: RasterRequest, signal?: AbortSignal): AsyncGenerator<GlyphPage> {
   const margin = Math.ceil(req.fontPx / 2);
   const plan = planAtlas(req.widths, req.cellH, margin);
   const ctx = textContext(plan.pageW, plan.pageH);
@@ -89,12 +94,17 @@ export async function* rasterizeGlyphs(req: RasterRequest): AsyncGenerator<Glyph
     let font = "";
     const ids: number[] = [];
     for (; i < plan.slots.length && plan.slots[i].page === page; i++) {
+      if (ids.length % RASTER_SLICE === RASTER_SLICE - 1) {
+        await nextTask();
+        signal?.throwIfAborted();
+      }
       const f = cssFont(req.fontPx, req.families[i]);
       if (f !== font) ctx.font = font = f;
       const s = plan.slots[i];
       ctx.fillText(String.fromCodePoint(req.codepoints[i]), s.x, s.y + req.baselinePx);
       ids.push(i);
     }
+    signal?.throwIfAborted();
     const img = ctx.getImageData(0, 0, plan.pageW, plan.pageH);
     yield {
       rgba: img.data,

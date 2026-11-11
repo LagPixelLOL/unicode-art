@@ -110,15 +110,15 @@ export interface PresetProgress {
   total: number;
 }
 
-/** Downloads every font of a preset. Families that fail are reported, not fatal. */
-export async function loadPreset(
-  preset: Preset,
+/** Downloads Google Fonts families. Families that fail are reported, not fatal. */
+export async function loadGoogleFamilies(
+  families: readonly string[],
   signal?: AbortSignal,
   onProgress?: (p: PresetProgress) => void,
   fetchFn: typeof fetch = fetch,
 ): Promise<LoadReport> {
-  if (preset.families.length === 0) return { fonts: [], warnings: [] };
-  const urls = googleCssUrls(preset.families);
+  if (families.length === 0) return { fonts: [], warnings: [] };
+  const urls = googleCssUrls(families);
   const warnings: string[] = [];
   let done = 0;
   onProgress?.({ phase: "stylesheets", done, total: urls.length });
@@ -137,6 +137,6 @@ export async function loadPreset(
     }),
   );
   const files: FilesProgress = (d, total) => onProgress?.({ phase: "files", done: d, total });
-  const report = await loadStylesheetFaces(sheets.flat(), preset.families, signal, files, fetchFn);
+  const report = await loadStylesheetFaces(sheets.flat(), families, signal, files, fetchFn);
   return { fonts: report.fonts, warnings: [...warnings, ...report.warnings] };
 }

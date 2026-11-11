@@ -2,7 +2,7 @@
 // result: same glyphs, same fonts, same positions.
 
 import type { ComputeBackend } from "../engine/backend";
-import { cssFont, textContext } from "./atlas";
+import { cssFont, nextTask, textContext } from "./atlas";
 import type { ArtResult } from "./generate";
 
 export const CANVAS_MIN_SIMILARITY = 0.97;
@@ -43,7 +43,10 @@ function context(w: number, h: number): OffscreenCanvasRenderingContext2D {
  * separately draws each computed glyph with the font it was matched with at
  * its computed position, then compares both pixel by pixel.
  */
-export async function verifyCanvas(result: ArtResult, backend: ComputeBackend): Promise<CanvasCheck> {
+/** Rows drawn or compared between checks for cancellation. */
+const VERIFY_SLICE = 32;
+
+export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, signal?: AbortSignal): Promise<CanvasCheck> {
   const { geometry: geo, layout, rows } = result;
   const w = geo.widthPx;
   const h = rows * geo.cellH;
@@ -53,6 +56,10 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend): 
   const computed = context(w, h);
   let font = -1;
   for (let r = 0; r < rows; r++) {
+    if (r % VERIFY_SLICE === VERIFY_SLICE - 1) {
+      await nextTask();
+      signal?.throwIfAborted();
+    }
     const y = r * geo.cellH + geo.baselinePx;
     native.fillText(result.lines[r], 0, y);
     const start = layout.rowOffsets[r];
@@ -74,6 +81,10 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend): 
   let badRows = 0;
   const band = geo.cellH * w * 4;
   for (let r = 0; r < rows; r++) {
+    if (r % VERIFY_SLICE === VERIFY_SLICE - 1) {
+      await nextTask();
+      signal?.throwIfAborted();
+    }
     const c = await backend.compareImages(
       a.subarray(r * band, (r + 1) * band),
       b.subarray(r * band, (r + 1) * band),

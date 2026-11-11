@@ -1,65 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { SourceImage, Stage } from "../art/generate";
+import type { SourceImage } from "../art/generate";
 import { type DomCheck, type DomMeasurements, evaluateDom } from "../art/verify";
 import type { ComputeBackend, ExclusionRule } from "../engine/backend";
-import { DEFAULT_PRESET, PRESETS } from "../fonts/presets";
+import { DEFAULT_PRESET, PRESETS, loadGoogleFamilies } from "../fonts/presets";
 import { FontStore } from "../fonts/store";
 import { classifyFile, decodeImage, imageFromItems } from "../image/load";
+import { Badge, Progress, Section, buttonClass, inputClass } from "./common";
 import { ExclusionInfo } from "./ExclusionInfo";
 import { FontList, isInternalDrag } from "./FontList";
 import { errorText, useNotify } from "./notices";
 import { DETAIL_RANGE, WIDTH_RANGE, readOptions } from "./options";
 import { OutputBox } from "./OutputBox";
-import { Timing } from "./Timing";
 import { asciiOnly, plural } from "./text";
-import { useConversion } from "./useConversion";
+import { Timing } from "./Timing";
+import { type RunStage, useConversion } from "./useConversion";
 import { useFontLoader } from "./useFontLoader";
 
-const STAGE_LABEL: Record<Stage, string> = {
+const STAGE_LABEL: Record<RunStage, string> = {
+  fonts: "Loading fonts",
   charset: "Measuring characters",
   glyphs: "Rasterizing glyphs",
   target: "Preparing image",
   match: "Matching glyphs on the GPU",
+  verify: "Verifying the native rendering",
 };
-
-const inputClass =
-  "rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none";
-const buttonClass = "rounded-md bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50";
 
 function isEditable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 }
 
-function Section({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-sm font-medium text-zinc-300">{title}</h2>
-        {extra}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Progress({ value }: { value: number }) {
-  return (
-    <div className="h-1.5 overflow-hidden rounded bg-zinc-800">
-      <div className="h-full bg-zinc-400 transition-[width]" style={{ width: `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%` }} />
-    </div>
-  );
-}
-
-function Badge({ ok }: { ok: boolean | null }) {
-  const cls = ok === null ? "bg-zinc-800 text-zinc-400" : ok ? "bg-emerald-950 text-emerald-400" : "bg-red-950 text-red-400";
-  return <span className={`shrink-0 rounded px-1.5 font-medium ${cls}`}>{ok === null ? "..." : ok ? "PASS" : "FAIL"}</span>;
-}
-
 export function App({ backend }: { backend: ComputeBackend }) {
   const notify = useNotify();
-  const store = useMemo(() => new FontStore(backend), [backend]);
-  const fonts = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const store = useMemo(
+    () =>
+      new FontStore(backend, (families, signal, onProgress) =>
+        loadGoogleFamilies(families, signal, (p) => p.phase === "files" && onProgress(p.done, p.total)),
+      ),
+    [backend],
+  );
+  const entries = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const fontLoader = useFontLoader(store);
+  const conversion = useConversion(backend, store);
+  const { state, result, canvasCheck, verifyMs, lastTotalMs } = conversion;
   const [rules, setRules] = useState<ExclusionRule[]>([]);
   const [image, setImage] = useState<SourceImage | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -71,17 +53,13 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const [domCheck, setDomCheck] = useState<DomCheck | null>(null);
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
   const [lost, setLost] = useState<string | null>(null);
+  const [runKey, setRunKey] = useState<string | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const fontInput = useRef<HTMLInputElement>(null);
 
   const options = readOptions(widthText, detailText, invert);
-  const { state, result, canvasCheck, verifyMs } = useConversion(
-    backend,
-    fonts,
-    image,
-    options,
-    fontLoader.loading.length > 0 && fonts.length === 0,
-  );
+  const inputKey = `${image?.id}|${typeof options === "string" ? options : JSON.stringify(options)}|${entries.map((e) => e.id).join(",")}`;
+  const stale = !!result && runKey !== null && runKey !== inputKey && !conversion.running;
 
   useEffect(() => {
     backend.exclusionRules().then(setRules, (e) => notify("error", `Could not load the exclusion rules: ${errorText(e)}`));
@@ -91,17 +69,11 @@ export function App({ backend }: { backend: ComputeBackend }) {
     });
   }, [backend, notify]);
 
-  // Load the default preset once on start.
+  // The default preset only fills the list; fonts download on first use.
   const { applyPreset } = fontLoader;
-  useEffect(() => {
-    void applyPreset(DEFAULT_PRESET);
-  }, [applyPreset]);
+  useEffect(() => applyPreset(DEFAULT_PRESET), [applyPreset]);
 
   useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
-
-  useEffect(() => {
-    if (state.kind === "error") notify("error", state.message);
-  }, [state, notify]);
 
   const verified = canvasCheck && domCheck ? canvasCheck.pass && domCheck.pass : null;
   useEffect(() => {
@@ -110,12 +82,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
     }
   }, [verified, result, notify]);
 
-  const onLayout = useCallback(
-    (m: DomMeasurements) => {
-      if (result) setDomCheck(evaluateDom(result, m));
-    },
-    [result],
-  );
+  const onLayout = useCallback((m: DomMeasurements) => result && setDomCheck(evaluateDom(result, m)), [result]);
   useEffect(() => setDomCheck(null), [result]);
 
   const loadImage = useCallback(
@@ -155,7 +122,9 @@ export function App({ backend }: { backend: ComputeBackend }) {
       const fontFiles = files.filter((f) => classifyFile(f) === "font");
       const images = files.filter((f) => classifyFile(f) === "image");
       const other = files.filter((f) => classifyFile(f) === null);
-      if (other.length) notify("warning", `Ignored ${plural(other.length, "file")} that is neither an image nor a font.`, other.map((f) => f.name));
+      if (other.length) {
+        notify("warning", `Ignored ${plural(other.length, "file")} that is neither an image nor a font.`, other.map((f) => f.name));
+      }
       if (images.length > 1) notify("info", "Several images were dropped; the last one is used.");
       if (fontFiles.length) void fontLoader.addFiles(fontFiles);
       const img = images.at(-1);
@@ -171,6 +140,26 @@ export function App({ backend }: { backend: ComputeBackend }) {
     };
   }, [loadImage, notify, fontLoader.addFiles]);
 
+  const blocker = lost
+    ? "The GPU is no longer available. Reload the page."
+    : typeof options === "string"
+      ? options
+      : !image
+        ? "Upload, paste or drop an image."
+        : entries.length === 0
+          ? "Add a font or pick a preset."
+          : null;
+
+  const startOrCancel = () => {
+    if (conversion.running) {
+      conversion.cancel();
+      return;
+    }
+    if (blocker || !image || typeof options === "string") return;
+    setRunKey(inputKey);
+    void conversion.start({ image, options });
+  };
+
   const copy = async () => {
     if (!result) return;
     try {
@@ -183,10 +172,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
     setTimeout(() => setCopied(""), 1500);
   };
 
-  const provided = useMemo(() => {
-    if (!result) return null;
-    return new Map(result.families.map((f, i) => [f, result.provided[i]]));
-  }, [result]);
+  const provided = useMemo(() => (result ? new Map(result.families.map((f, i) => [f, result.provided[i]])) : null), [result]);
   const used = useMemo(() => {
     if (!result) return null;
     const sets = result.families.map(() => new Set<number>());
@@ -196,21 +182,31 @@ export function App({ backend }: { backend: ComputeBackend }) {
 
   let status: { text: string; tone: string; progress: number };
   if (lost) status = { text: `${lost} Reload the page to continue.`, tone: "text-red-400", progress: 0 };
-  else if (state.kind === "running") status = { text: `${STAGE_LABEL[state.stage]}...`, tone: "text-zinc-400", progress: state.progress };
-  else if (state.kind === "error") status = { text: state.message, tone: "text-red-400", progress: 0 };
-  else if (state.kind === "done")
+  else if (state.kind === "running") {
+    status = { text: `${STAGE_LABEL[state.stage]}${state.detail ? `: ${state.detail}` : "..."}`, tone: "text-zinc-400", progress: state.progress };
+  } else if (state.kind === "error") status = { text: state.message, tone: "text-red-400", progress: 0 };
+  else if (state.kind === "cancelled") status = { text: "Cancelled.", tone: "text-zinc-400", progress: 0 };
+  else if (state.kind === "done") {
     status = {
-      text: `Done in ${(state.totalMs / 1000).toFixed(2)} s. ${verified === null ? "Verifying..." : verified ? "Verified." : "Verification found differences."}`,
+      text: `Done. ${verified === null ? "Verifying the page layout..." : verified ? "Verified." : "Verification found differences."}`,
       tone: verified === false ? "text-amber-400" : "text-emerald-400",
       progress: 1,
     };
-  else status = { text: state.reason, tone: "text-zinc-400", progress: 0 };
+  } else status = { text: blocker ?? "Ready. Press Start to convert.", tone: "text-zinc-400", progress: 0 };
 
-  const appState = lost ? "error" : state.kind === "done" ? (verified === null ? "verifying" : verified ? "ok" : "mismatch") : state.kind;
+  const appState = lost
+    ? "error"
+    : state.kind === "done"
+      ? verified === null
+        ? "verifying"
+        : verified
+          ? "ok"
+          : "mismatch"
+      : state.kind;
   const s = result?.stats;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto md:overflow-hidden" data-state={appState}>
+    <div className="flex h-full flex-col overflow-x-hidden overflow-y-auto md:overflow-hidden" data-state={appState}>
       <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3 md:px-5">
         <h1 className="text-base font-semibold tracking-tight">Unicode Art</h1>
         <p className="hidden text-sm text-zinc-500 lg:block">Turn an image into text made from the characters of your fonts.</p>
@@ -218,19 +214,30 @@ export function App({ backend }: { backend: ComputeBackend }) {
       </header>
 
       <div className="flex flex-col md:min-h-0 md:flex-1 md:flex-row">
-        <aside className="flex w-full shrink-0 flex-col gap-6 border-zinc-800 p-4 md:w-96 md:overflow-y-auto md:border-r md:p-5">
-          <section className="space-y-2" aria-label="Output">
+        <aside className="flex w-full min-w-0 shrink-0 flex-col gap-6 border-zinc-800 p-4 md:w-96 md:overflow-x-hidden md:overflow-y-auto md:border-r md:p-5">
+          <section className="space-y-2" aria-label="Conversion">
+            <button
+              type="button"
+              onClick={startOrCancel}
+              disabled={!conversion.running && !!blocker}
+              data-testid="start-button"
+              className={`w-full rounded-md px-3 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 ${
+                conversion.running ? "bg-red-900 text-red-100 hover:bg-red-800" : "bg-zinc-100 text-zinc-900 hover:bg-white"
+              }`}
+            >
+              {conversion.running ? "Cancel" : "Start"}
+            </button>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 disabled={!result}
                 onClick={copy}
                 data-testid="copy-button"
-                className="flex-1 rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                className={`${buttonClass} flex-1 py-2`}
               >
                 {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy text"}
               </button>
-              {result && state.kind === "done" && <Timing result={result} totalMs={state.totalMs} verifyMs={verifyMs} />}
+              {result && lastTotalMs !== null && <Timing result={result} totalMs={lastTotalMs} verifyMs={verifyMs} />}
             </div>
             {result && s && (
               <p
@@ -244,6 +251,11 @@ export function App({ backend }: { backend: ComputeBackend }) {
               >
                 {`${plural(result.rows, "line")}, ${plural(s.characters, "character")}, ${s.distinct.toLocaleString("en-US")} distinct of ` +
                   `${s.candidates.toLocaleString("en-US")} candidates, RMS error ${s.rmsError.toFixed(3)}`}
+              </p>
+            )}
+            {stale && (
+              <p className="text-xs text-amber-400" data-testid="stale">
+                The inputs changed since this output was made. Press Start to convert again.
               </p>
             )}
           </section>
@@ -273,8 +285,8 @@ export function App({ backend }: { backend: ComputeBackend }) {
               Transparent areas become white; colors become grey.
             </p>
             {image && preview && (
-              <div className="mt-3 flex items-center gap-3">
-                <img src={preview} alt="Selected image" className="h-16 w-16 rounded border border-zinc-800 bg-white object-contain" />
+              <div className="mt-3 flex min-w-0 items-center gap-3">
+                <img src={preview} alt="Selected image" className="h-16 w-16 shrink-0 rounded border border-zinc-800 bg-white object-contain" />
                 <div className="min-w-0 text-xs break-all text-zinc-400" data-testid="image-meta">
                   {image.name}, {image.width} x {image.height}
                 </div>
@@ -283,7 +295,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
           </Section>
 
           <Section title="Fonts" extra={<ExclusionInfo rules={rules} />}>
-            <div className="flex gap-2">
+            <div className="flex min-w-0 gap-2">
               <select
                 aria-label="Font preset"
                 data-testid="preset-select"
@@ -297,35 +309,37 @@ export function App({ backend }: { backend: ComputeBackend }) {
                   </option>
                 ))}
               </select>
-              <button type="button" className={buttonClass} onClick={() => void fontLoader.applyPreset(presetId)}>
+              <button
+                type="button"
+                className={`${buttonClass} shrink-0`}
+                disabled={conversion.running}
+                onClick={() => applyPreset(presetId)}
+              >
                 Replace list
               </button>
             </div>
-            <div className="mt-2 flex gap-2">
-              <button type="button" className={`${buttonClass} flex-1`} onClick={() => fontInput.current?.click()}>
-                Upload font files
-              </button>
-              <input
-                ref={fontInput}
-                data-testid="font-input"
-                type="file"
-                multiple
-                accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/*"
-                className="hidden"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  e.target.value = "";
-                  if (files.length) void fontLoader.addFiles(files);
-                }}
-              />
-            </div>
+            <button type="button" className={`${buttonClass} mt-2 w-full`} onClick={() => fontInput.current?.click()}>
+              Upload font files
+            </button>
+            <input
+              ref={fontInput}
+              data-testid="font-input"
+              type="file"
+              multiple
+              accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/*"
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (files.length) void fontLoader.addFiles(files);
+              }}
+            />
             <form
-              className="mt-2 flex gap-2"
+              className="mt-2 flex min-w-0 gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 const url = fontUrl.trim();
-                if (!url) return;
-                void fontLoader.addUrl(url).then(() => setFontUrl(""));
+                if (url) void fontLoader.addUrl(url).then(() => setFontUrl(""));
               }}
             >
               <input
@@ -337,27 +351,27 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 placeholder="https://.../font.woff2 or a CSS URL"
                 className={`${inputClass} min-w-0 flex-1 py-1.5 text-sm`}
               />
-              <button type="submit" className={buttonClass} disabled={!fontUrl.trim()}>
+              <button type="submit" className={`${buttonClass} shrink-0`} disabled={!fontUrl.trim()}>
                 Add
               </button>
             </form>
-            {fontLoader.loading.map((job) => (
-              <div key={job.label} className="mt-3 space-y-1" data-testid="font-loading">
+            {fontLoader.loading && (
+              <div className="mt-3 space-y-1" data-testid="font-loading">
                 <div className="flex items-center gap-2 text-xs text-zinc-400">
                   <span className="min-w-0 flex-1 truncate">
-                    {job.label}: {job.phase}
-                    {job.total ? ` ${job.done} / ${job.total}` : "..."}
+                    {fontLoader.loading.label}: {fontLoader.loading.phase}
+                    {fontLoader.loading.total ? ` ${fontLoader.loading.done} / ${fontLoader.loading.total}` : "..."}
                   </span>
                   <button type="button" className="text-zinc-500 underline hover:text-zinc-200" onClick={fontLoader.cancel}>
                     Cancel
                   </button>
                 </div>
-                <Progress value={job.total ? job.done / job.total : 0} />
+                <Progress value={fontLoader.loading.total ? fontLoader.loading.done / fontLoader.loading.total : 0} />
               </div>
-            ))}
+            )}
             <div className="mt-3">
               <FontList
-                fonts={fonts}
+                fonts={entries}
                 provided={provided}
                 used={used}
                 onMove={(a, b) => store.move(a, b)}
@@ -366,7 +380,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
             </div>
             <p className="mt-2 text-xs text-zinc-500">
               Drag to reorder. A character missing from a font is looked up in the fonts below it; characters no font
-              has are never used. Presets are downloaded from Google Fonts.
+              has are never used. Preset fonts come from Google Fonts and are downloaded when you press Start.
             </p>
           </Section>
 
@@ -416,26 +430,28 @@ export function App({ backend }: { backend: ComputeBackend }) {
           </Section>
 
           <Section title="Status">
-            <p className={`text-sm ${status.tone}`} aria-live="polite" data-testid="status">
+            <p className={`text-sm break-words ${status.tone}`} aria-live="polite" data-testid="status">
               {status.text}
             </p>
             <div className="mt-2">
-              <Progress value={status.progress} />
+              <Progress value={status.progress} label="Conversion progress" />
             </div>
-            {result && state.kind !== "error" && (
+            {result && (
               <ul className="mt-3 space-y-1 text-xs" aria-label="Verification" data-testid="verification">
                 <li className="flex gap-2" data-result={canvasCheck ? (canvasCheck.pass ? "pass" : "fail") : "pending"}>
                   <Badge ok={canvasCheck ? canvasCheck.pass : null} />
-                  <span className="text-zinc-400">
+                  <span className="min-w-0 text-zinc-400">
                     Native text render vs computed glyphs
                     {canvasCheck &&
                       `: ${(canvasCheck.similarity * 100).toFixed(2)}% similar` +
-                        (canvasCheck.pass ? "" : `, worst line ${canvasCheck.worstRow + 1} at ${(canvasCheck.worstRowSimilarity * 100).toFixed(1)}%`)}
+                        (canvasCheck.pass
+                          ? ""
+                          : `, worst line ${canvasCheck.worstRow + 1} at ${(canvasCheck.worstRowSimilarity * 100).toFixed(1)}%`)}
                   </span>
                 </li>
                 <li className="flex gap-2" data-result={domCheck ? (domCheck.pass ? "pass" : "fail") : "pending"}>
                   <Badge ok={domCheck ? domCheck.pass : null} />
-                  <span className="text-zinc-400">
+                  <span className="min-w-0 text-zinc-400">
                     Page layout vs computed positions
                     {domCheck &&
                       `: max error ${domCheck.maxPositionError.toFixed(2)} px over ${plural(domCheck.checkedGlyphs, "glyph")}, ` +
@@ -451,8 +467,8 @@ export function App({ backend }: { backend: ComputeBackend }) {
         <main className="order-first flex h-[60vh] min-w-0 shrink-0 flex-col p-3 md:order-none md:h-auto md:flex-1 md:shrink md:p-4">
           <OutputBox
             result={result}
-            busy={state.kind === "running"}
-            placeholder={state.kind === "idle" ? state.reason : state.kind === "running" ? "Working..." : ""}
+            busy={conversion.running}
+            placeholder={conversion.running ? "Working..." : (blocker ?? "Press Start to convert.")}
             onLayout={onLayout}
           />
         </main>

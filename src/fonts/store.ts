@@ -94,15 +94,48 @@ export interface AddResult {
   warnings: string[];
 }
 
+export type FontStatus = "pending" | "loading" | "ready" | "failed";
+
+/** One row of the priority list. Preset fonts start out pending and are downloaded when first needed. */
+export interface FontEntry {
+  id: number;
+  /** CSS family the font is (or will be) registered under. */
+  family: string;
+  name: string;
+  status: FontStatus;
+  /** Google Fonts family to download, for lazily loaded entries. */
+  remote: string | null;
+  error: string | null;
+  font: LoadedFont | null;
+}
+
+export type RemoteLoader = (
+  families: readonly string[],
+  signal: AbortSignal | undefined,
+  onProgress: (done: number, total: number) => void,
+) => Promise<{ fonts: FontSource[]; warnings: string[] }>;
+
 export class FontStore {
-  private items: LoadedFont[] = [];
+  private items: FontEntry[] = [];
   private nextId = 1;
   private listeners = new Set<() => void>();
 
-  constructor(private readonly backend: ComputeBackend) {}
+  constructor(
+    private readonly backend: ComputeBackend,
+    private readonly remote: RemoteLoader,
+  ) {}
 
-  get fonts(): readonly LoadedFont[] {
+  get entries(): readonly FontEntry[] {
     return this.items;
+  }
+
+  /** Fonts usable for conversion, in priority order. */
+  get ready(): LoadedFont[] {
+    return this.items.flatMap((e) => (e.status === "ready" && e.font ? [e.font] : []));
+  }
+
+  get pendingCount(): number {
+    return this.items.filter((e) => e.status === "pending").length;
   }
 
   subscribe = (fn: () => void): (() => void) => {
@@ -110,19 +143,23 @@ export class FontStore {
     return () => this.listeners.delete(fn);
   };
 
-  getSnapshot = (): readonly LoadedFont[] => this.items;
+  getSnapshot = (): readonly FontEntry[] => this.items;
 
   private changed(): void {
     for (const fn of this.listeners) fn();
   }
 
-  /** Parses and registers a font without adding it to the list. */
-  private async load(source: FontSource): Promise<AddResult> {
-    const id = this.nextId++;
-    const family = `uaf-${id}`;
+  private update(id: number, patch: Partial<FontEntry>): void {
+    this.items = this.items.map((e) => (e.id === id ? { ...e, ...patch } : e));
+    this.changed();
+  }
+
+  /** Parses and registers a font under `family`. */
+  private async load(source: FontSource, id: number, family: string, signal?: AbortSignal): Promise<AddResult> {
     const warnings: string[] = [];
     const faces: LoadedFace[] = [];
     for (const src of source.faces) {
+      signal?.throwIfAborted();
       const where = source.faces.length > 1 ? `${source.name} (${src.label})` : source.name;
       let info: FontInfoData;
       try {
@@ -166,59 +203,102 @@ export class FontStore {
       formats: [...new Set(faces.map((f) => f.info.format))],
       colorGlyphs: faces.reduce((s, f) => s + f.info.colorGlyphs, 0),
     };
-    if (codepoints.length === 0) warnings.push(`${source.name}: has no usable characters; it is listed but contributes nothing.`);
+    if (codepoints.length === 0) warnings.push(`${font.name}: has no usable characters; it contributes nothing.`);
     for (const f of faces) document.fonts.add(f.face);
     return { font, warnings };
   }
 
-  private unregister(font: LoadedFont): void {
-    for (const f of font.faces) document.fonts.delete(f.face);
+  private unregister(entry: FontEntry): void {
+    for (const f of entry.font?.faces ?? []) document.fonts.delete(f.face);
   }
 
+  private allocate(name: string, remote: string | null): FontEntry {
+    const id = this.nextId++;
+    return { id, family: `uaf-${id}`, name, status: "pending", remote, error: null, font: null };
+  }
+
+  /** Loads a font right away (files and URLs) and appends it. */
   async add(source: FontSource): Promise<AddResult> {
-    const r = await this.load(source);
+    const entry = this.allocate(source.name, null);
+    const r = await this.load(source, entry.id, entry.family);
     if (r.font) {
-      this.items = [...this.items, r.font];
+      this.items = [...this.items, { ...entry, name: r.font.name, status: "ready", font: r.font }];
       this.changed();
     }
     return r;
   }
 
-  /**
-   * Replaces the fonts that were in the list when the call started with
-   * `sources`. Fonts added meanwhile stay, after the new ones.
-   */
-  async replace(
-    sources: readonly FontSource[],
-    signal?: AbortSignal,
-    onProgress?: (done: number, total: number) => void,
-  ): Promise<string[]> {
-    const previous = new Set(this.items.map((f) => f.id));
-    const loaded: LoadedFont[] = [];
-    const warnings: string[] = [];
-    try {
-      for (let i = 0; i < sources.length; i++) {
-        signal?.throwIfAborted();
-        const r = await this.load(sources[i]);
-        warnings.push(...r.warnings);
-        if (r.font) loaded.push(r.font);
-        onProgress?.(i + 1, sources.length);
-      }
-      signal?.throwIfAborted();
-    } catch (e) {
-      for (const f of loaded) this.unregister(f);
-      throw e;
-    }
-    for (const f of this.items) if (previous.has(f.id)) this.unregister(f);
-    this.items = [...loaded, ...this.items.filter((f) => !previous.has(f.id))];
+  /** Replaces the whole list with fonts that are downloaded when first needed. */
+  setRemote(families: readonly string[]): void {
+    for (const e of this.items) this.unregister(e);
+    this.items = families.map((f) => this.allocate(f, f));
     this.changed();
-    return warnings;
+  }
+
+  /**
+   * Downloads and registers every pending font. Fonts that fail are marked
+   * as failed and reported; on abort, unfinished fonts return to pending.
+   */
+  ensureReady(signal?: AbortSignal, onProgress?: (phase: string, done: number, total: number) => void): Promise<string[]> {
+    // Serialized so a new call never races a cancelled one that is unwinding.
+    const run = this.loading.then(() => this.loadPending(signal, onProgress));
+    this.loading = run.catch(() => {});
+    return run;
+  }
+
+  private loading: Promise<unknown> = Promise.resolve();
+
+  private async loadPending(
+    signal?: AbortSignal,
+    onProgress?: (phase: string, done: number, total: number) => void,
+  ): Promise<string[]> {
+    signal?.throwIfAborted();
+    const pending = this.items.filter((e) => e.status === "pending" && e.remote);
+    if (pending.length === 0) return [];
+    const ids = new Set(pending.map((e) => e.id));
+    this.items = this.items.map((e) => (ids.has(e.id) ? { ...e, status: "loading" as const, error: null } : e));
+    this.changed();
+    const revert = () => {
+      this.items = this.items.map((e) => (ids.has(e.id) && e.status === "loading" ? { ...e, status: "pending" as const } : e));
+      this.changed();
+    };
+    try {
+      const report = await this.remote(
+        pending.map((e) => e.remote!),
+        signal,
+        (done, total) => onProgress?.("Downloading fonts", done, total),
+      );
+      signal?.throwIfAborted();
+      const warnings = [...report.warnings];
+      const byName = new Map(report.fonts.map((f) => [f.name, f]));
+      for (let i = 0; i < pending.length; i++) {
+        signal?.throwIfAborted();
+        onProgress?.("Registering fonts", i, pending.length);
+        const entry = pending[i];
+        if (!this.items.some((e) => e.id === entry.id)) continue; // Removed meanwhile.
+        const source = byName.get(entry.remote!);
+        if (!source) {
+          this.update(entry.id, { status: "failed", error: "could not be downloaded" });
+          continue;
+        }
+        const r = await this.load(source, entry.id, entry.family, signal);
+        warnings.push(...r.warnings);
+        if (!this.items.some((e) => e.id === entry.id)) {
+          if (r.font) this.unregister({ ...entry, font: r.font });
+          continue;
+        }
+        this.update(entry.id, r.font ? { status: "ready", font: r.font } : { status: "failed", error: "no usable font file" });
+      }
+      return warnings;
+    } finally {
+      revert();
+    }
   }
 
   remove(id: number): void {
-    const font = this.items.find((f) => f.id === id);
-    if (!font) return;
-    this.unregister(font);
+    const entry = this.items.find((f) => f.id === id);
+    if (!entry) return;
+    this.unregister(entry);
     this.items = this.items.filter((f) => f.id !== id);
     this.changed();
   }

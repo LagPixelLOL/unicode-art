@@ -1,8 +1,8 @@
-// Font loading actions (presets, URLs, files) with progress and notices.
+// Font actions: presets (lazy), URLs and files (loaded right away).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAbort } from "../engine/backend";
-import { PRESETS, loadPreset } from "../fonts/presets";
+import { PRESETS } from "../fonts/presets";
 import { type FontSource, type LoadReport, loadFontUrl } from "../fonts/sources";
 import type { FontStore } from "../fonts/store";
 import { errorText, useNotify } from "./notices";
@@ -17,74 +17,55 @@ export interface FontLoading {
 
 type Update = (phase: string, done: number, total: number) => void;
 
-type JobKind = "preset" | "add";
-
 export function useFontLoader(store: FontStore) {
   const notify = useNotify();
-  const [jobs, setJobs] = useState<Partial<Record<JobKind, FontLoading>>>({});
-  const current = useRef<Partial<Record<JobKind, AbortController>>>({});
-
-  const begin = (kind: JobKind, label: string) => {
-    current.current[kind]?.abort();
-    const ctrl = new AbortController();
-    current.current[kind] = ctrl;
-    const set = (v: FontLoading | undefined) => setJobs((j) => ({ ...j, [kind]: v }));
-    set({ label, phase: "Starting", done: 0, total: 0 });
-    const update = (phase: string, done: number, total: number) => {
-      if (current.current[kind] === ctrl) set({ label, phase, done, total });
-    };
-    const end = () => {
-      if (current.current[kind] === ctrl) {
-        delete current.current[kind];
-        set(undefined);
-      }
-    };
-    return { ctrl, update, end };
-  };
-
-  const report = useCallback(
-    (what: string, warnings: string[], added: number) => {
-      if (warnings.length) {
-        notify(
-          added ? "warning" : "error",
-          `${what}: ${plural(warnings.length, "problem")}${added ? `, ${plural(added, "font")} loaded anyway` : ", nothing was loaded"}.`,
-          warnings,
-        );
-      }
-    },
-    [notify],
-  );
+  const [loading, setLoading] = useState<FontLoading | null>(null);
+  const current = useRef<AbortController | null>(null);
 
   const addSources = useCallback(
     async (label: string, produce: (signal: AbortSignal, update: Update) => Promise<LoadReport> | LoadReport) => {
-      const job = begin("add", label);
+      current.current?.abort();
+      const ctrl = new AbortController();
+      current.current = ctrl;
+      const update: Update = (phase, done, total) => {
+        if (current.current === ctrl) setLoading({ label, phase, done, total });
+      };
+      update("Starting", 0, 0);
       try {
-        const r = await produce(job.ctrl.signal, job.update);
+        const r = await produce(ctrl.signal, update);
         const warnings = [...r.warnings];
         let added = 0;
         for (let i = 0; i < r.fonts.length; i++) {
-          job.ctrl.signal.throwIfAborted();
-          job.update("Registering fonts", i, r.fonts.length);
+          ctrl.signal.throwIfAborted();
+          update("Registering fonts", i, r.fonts.length);
           const res = await store.add(r.fonts[i]);
           warnings.push(...res.warnings);
           if (res.font) added++;
         }
-        report(label, warnings, added);
-        if (!warnings.length && added) notify("info", `Added ${plural(added, "font")}.`);
+        if (warnings.length) {
+          notify(
+            added ? "warning" : "error",
+            `${label}: ${plural(warnings.length, "problem")}${added ? `, ${plural(added, "font")} added anyway` : ", nothing was added"}.`,
+            warnings,
+          );
+        } else if (added) {
+          notify("info", `Added ${plural(added, "font")} at the end of the list.`);
+        }
       } catch (e) {
         if (!isAbort(e)) notify("error", `${label}: ${errorText(e)}`);
       } finally {
-        job.end();
+        if (current.current === ctrl) {
+          current.current = null;
+          setLoading(null);
+        }
       }
     },
-    [store, notify, report],
+    [store, notify],
   );
 
   const addUrl = useCallback(
     (url: string) =>
-      addSources("Font URL", (signal, update) =>
-        loadFontUrl(url, signal, (d, t) => update("Downloading files", d, t)),
-      ),
+      addSources("Font URL", (signal, update) => loadFontUrl(url, signal, (d, t) => update("Downloading files", d, t))),
     [addSources],
   );
 
@@ -98,11 +79,7 @@ export function useFontLoader(store: FontStore) {
           update("Reading files", i, files.length);
           try {
             const bytes = new Uint8Array(await files[i].arrayBuffer());
-            fonts.push({
-              name: files[i].name,
-              faces: [{ bytes, unicodeRange: null, label: files[i].name }],
-              preferFamilyName: true,
-            });
+            fonts.push({ name: files[i].name, faces: [{ bytes, unicodeRange: null, label: files[i].name }], preferFamilyName: true });
           } catch {
             warnings.push(`${files[i].name}: the file could not be read.`);
           }
@@ -112,43 +89,22 @@ export function useFontLoader(store: FontStore) {
     [addSources],
   );
 
+  /** Replaces the list; nothing is downloaded until a conversion needs it. */
   const applyPreset = useCallback(
-    async (id: string) => {
+    (id: string) => {
       const preset = PRESETS.find((p) => p.id === id);
-      if (!preset) return;
-      const job = begin("preset", preset.label);
-      try {
-        const r = await loadPreset(preset, job.ctrl.signal, (p) =>
-          job.update(p.phase === "stylesheets" ? "Fetching stylesheets" : "Downloading files", p.done, p.total),
-        );
-        if (preset.families.length && r.fonts.length === 0) {
-          notify("error", `${preset.label}: no font could be downloaded. Check the network connection.`, r.warnings);
-          return;
-        }
-        const warnings = await store.replace(r.fonts, job.ctrl.signal, (d, t) => job.update("Registering fonts", d, t));
-        report(preset.label, [...r.warnings, ...warnings], r.fonts.length);
-      } catch (e) {
-        if (!isAbort(e)) notify("error", `${preset.label}: ${errorText(e)}`);
-      } finally {
-        job.end();
-      }
+      if (preset) store.setRemote(preset.families);
     },
-    [store, notify, report],
+    [store],
   );
 
   const cancel = useCallback(() => {
-    for (const c of Object.values(current.current)) c?.abort();
-    current.current = {};
-    setJobs({});
+    current.current?.abort();
+    current.current = null;
+    setLoading(null);
   }, []);
 
-  useEffect(
-    () => () => {
-      for (const c of Object.values(current.current)) c?.abort();
-    },
-    [],
-  );
+  useEffect(() => () => current.current?.abort(), []);
 
-  const loading = [jobs.preset, jobs.add].filter((j): j is FontLoading => !!j);
   return { loading, addUrl, addFiles, applyPreset, cancel };
 }

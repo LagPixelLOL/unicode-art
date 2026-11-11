@@ -1,7 +1,7 @@
 // Font priority list with drag and drop reordering.
 
 import { useState } from "react";
-import type { LoadedFont } from "../fonts/store";
+import type { FontEntry } from "../fonts/store";
 import { DownIcon, GripIcon, UpIcon, XIcon } from "./icons";
 import { asciiOnly, plural } from "./text";
 
@@ -17,8 +17,26 @@ export function isInternalDrag(dt: DataTransfer | null): boolean {
   return !!dt && Array.from(dt.types).includes(DRAG_TYPE);
 }
 
+function describe(e: FontEntry, provided?: number, used?: number): string {
+  switch (e.status) {
+    case "pending":
+      return "Downloaded from Google Fonts when you press Start";
+    case "loading":
+      return "Downloading...";
+    case "failed":
+      return `Failed: ${e.error ?? "unknown error"}`;
+  }
+  const f = e.font!;
+  return (
+    `${f.formats.join("/").toUpperCase()}${f.faces.length > 1 ? `, ${f.faces.length} files` : ""}` +
+    `${f.isVariable ? ", variable" : ""}, ${plural(f.coverage.length, "char")}` +
+    (provided !== undefined ? `, provides ${provided.toLocaleString("en-US")}` : "") +
+    (used !== undefined ? `, ${used.toLocaleString("en-US")} used` : "")
+  );
+}
+
 interface Props {
-  fonts: readonly LoadedFont[];
+  fonts: readonly FontEntry[];
   /** Characters each font provides after priority, by family. */
   provided: Map<string, number> | null;
   /** Distinct characters of each font used by the current output, by family. */
@@ -57,7 +75,7 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
 
   return (
     <ol
-      className="max-h-72 space-y-1 overflow-y-auto overscroll-contain pr-1"
+      className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1"
       aria-label="Fonts in priority order"
       data-testid="font-list"
       onDragLeave={(e) => {
@@ -99,7 +117,7 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
               setDragFrom(-1);
               if (Number.isInteger(from) && from >= 0) onMove(from, dropIndex(from, i, position(e)));
             }}
-            className={`flex cursor-grab items-center gap-2 rounded-md border-2 bg-zinc-900 px-2 py-1 active:cursor-grabbing ${marker} ${dragFrom === i ? "opacity-50" : ""}`}
+            className={`flex min-w-0 cursor-grab items-center gap-1 rounded-md border-2 bg-zinc-900 px-2 py-1 active:cursor-grabbing ${marker} ${dragFrom === i ? "opacity-50" : ""}`}
           >
             <span className="text-zinc-600">
               <GripIcon />
@@ -108,12 +126,11 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
               <div className="truncate text-sm text-zinc-200" title={asciiOnly(f.name)}>
                 {i + 1}. {asciiOnly(f.name)}
               </div>
-              <div className="text-xs break-words text-zinc-500">
-                {f.formats.join("/").toUpperCase()}
-                {f.faces.length > 1 ? `, ${f.faces.length} files` : ""}
-                {f.isVariable ? ", variable" : ""}, {plural(f.coverage.length, "char")}
-                {p !== undefined ? `, provides ${p.toLocaleString("en-US")}` : ""}
-                {u !== undefined ? `, ${u.toLocaleString("en-US")} used` : ""}
+              <div
+                className={`text-xs break-words ${f.status === "failed" ? "text-red-400" : "text-zinc-500"}`}
+                data-status={f.status}
+              >
+                {asciiOnly(describe(f, p, u))}
               </div>
             </div>
             <IconButton label="Move up" disabled={i === 0} onClick={() => onMove(i, i - 1)}>

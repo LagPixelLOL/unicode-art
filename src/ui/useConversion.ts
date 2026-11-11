@@ -1,85 +1,107 @@
-// Runs the conversion whenever its inputs change, newest run wins.
+// Conversion runs, started and cancelled explicitly by the user.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type ArtOptions, type ArtResult, ArtGenerator, type SourceImage, type Stage } from "../art/generate";
 import { type CanvasCheck, verifyCanvas } from "../art/verify";
 import { type ComputeBackend, isAbort } from "../engine/backend";
-import type { LoadedFont } from "../fonts/store";
-import { errorText } from "./notices";
+import type { FontStore } from "../fonts/store";
+import { errorText, useNotify } from "./notices";
+import { plural } from "./text";
+
+export type RunStage = "fonts" | Stage | "verify";
 
 export type ConversionState =
-  | { kind: "idle"; reason: string }
-  | { kind: "running"; stage: Stage; progress: number }
+  | { kind: "idle" }
+  | { kind: "running"; stage: RunStage; progress: number; detail: string }
   | { kind: "done"; totalMs: number }
+  | { kind: "cancelled" }
   | { kind: "error"; message: string };
 
-const DEBOUNCE_MS = 200;
+export interface RunInputs {
+  image: SourceImage;
+  options: ArtOptions;
+}
 
-export function useConversion(
-  backend: ComputeBackend,
-  fonts: readonly LoadedFont[],
-  image: SourceImage | null,
-  options: ArtOptions | string,
-  waitingForFonts: boolean,
-) {
+export function useConversion(backend: ComputeBackend, store: FontStore) {
+  const notify = useNotify();
   const generator = useRef<ArtGenerator | null>(null);
   generator.current ??= new ArtGenerator(backend);
-  const [state, setState] = useState<ConversionState>({ kind: "idle", reason: "" });
+  const current = useRef<AbortController | null>(null);
+  const [state, setState] = useState<ConversionState>({ kind: "idle" });
   const [result, setResult] = useState<ArtResult | null>(null);
   const [canvasCheck, setCanvasCheck] = useState<CanvasCheck | null>(null);
   const [verifyMs, setVerifyMs] = useState<number | null>(null);
-  const optionsKey = typeof options === "string" ? options : JSON.stringify(options);
+  const [lastTotalMs, setLastTotalMs] = useState<number | null>(null);
 
-  useEffect(() => () => generator.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      current.current?.abort();
+      generator.current?.dispose();
+    },
+    [],
+  );
 
-  useEffect(() => {
-    if (typeof options === "string") {
-      setState({ kind: "error", message: options });
-      return;
-    }
-    if (fonts.length === 0 || !image) {
-      setResult(null);
-      setCanvasCheck(null);
-      const reason =
-        fonts.length === 0
-          ? waitingForFonts
-            ? "Waiting for the fonts to finish loading."
-            : "Add at least one font, or pick a preset."
-          : "Upload, paste or drop an image.";
-      setState({ kind: "idle", reason });
-      return;
-    }
-    const ctrl = new AbortController();
-    const timer = setTimeout(async () => {
+  const start = useCallback(
+    async ({ image, options }: RunInputs) => {
+      current.current?.abort();
+      const ctrl = new AbortController();
+      current.current = ctrl;
+      const { signal } = ctrl;
+      const set = (s: ConversionState) => {
+        if (current.current === ctrl) setState(s);
+      };
       const started = performance.now();
       try {
-        setState({ kind: "running", stage: "charset", progress: 0 });
-        const r = await generator.current!.generate(fonts, image, options, ctrl.signal, (stage, progress) => {
-          if (!ctrl.signal.aborted) setState({ kind: "running", stage, progress });
-        });
-        if (ctrl.signal.aborted) return;
+        set({ kind: "running", stage: "fonts", progress: 0, detail: "" });
+        const warnings = await store.ensureReady(signal, (phase, done, total) =>
+          set({ kind: "running", stage: "fonts", progress: total ? done / total : 0, detail: `${phase} ${done} / ${total}` }),
+        );
+        if (warnings.length) {
+          notify("warning", `Some fonts could not be loaded (${plural(warnings.length, "problem")}).`, warnings);
+        }
+        const fonts = store.ready;
+        if (fonts.length === 0) throw new Error("No font is available. Add a font or pick a preset.");
+
+        const r = await generator.current!.generate(fonts, image, options, signal, (stage, progress) =>
+          set({ kind: "running", stage, progress, detail: "" }),
+        );
+        signal.throwIfAborted();
+        const totalMs = performance.now() - started;
         setResult(r);
         setCanvasCheck(null);
         setVerifyMs(null);
-        setState({ kind: "done", totalMs: performance.now() - started });
-        const verifyStart = performance.now();
-        const check = await verifyCanvas(r, backend);
-        if (!ctrl.signal.aborted) {
-          setCanvasCheck(check);
-          setVerifyMs(performance.now() - verifyStart);
-        }
-      } catch (e) {
-        if (isAbort(e) || ctrl.signal.aborted) return;
-        console.error(e);
-        setState({ kind: "error", message: errorText(e) });
-      }
-    }, DEBOUNCE_MS);
-    return () => {
-      clearTimeout(timer);
-      ctrl.abort();
-    };
-    // optionsKey stands in for options.
-  }, [backend, fonts, image, optionsKey, waitingForFonts]);
+        setLastTotalMs(totalMs);
 
-  return { state, result, canvasCheck, verifyMs };
+        set({ kind: "running", stage: "verify", progress: 0, detail: "" });
+        const verifyStart = performance.now();
+        const check = await verifyCanvas(r, backend, signal);
+        signal.throwIfAborted();
+        setCanvasCheck(check);
+        setVerifyMs(performance.now() - verifyStart);
+        set({ kind: "done", totalMs });
+      } catch (e) {
+        if (isAbort(e) || signal.aborted) {
+          set({ kind: "cancelled" });
+          return;
+        }
+        console.error(e);
+        const message = errorText(e);
+        set({ kind: "error", message });
+        notify("error", message);
+      } finally {
+        if (current.current === ctrl) current.current = null;
+      }
+    },
+    [backend, store, notify],
+  );
+
+  // Cancelling takes effect in the UI at once; the aborted run unwinds at its
+  // next checkpoint and can no longer touch the state.
+  const cancel = useCallback(() => {
+    current.current?.abort();
+    current.current = null;
+    setState({ kind: "cancelled" });
+  }, []);
+
+  return { state, result, canvasCheck, verifyMs, lastTotalMs, start, cancel, running: state.kind === "running" };
 }

@@ -65,6 +65,8 @@ const yieldToBrowser = () => new Promise<void>((r) => setTimeout(r, 0));
 export class ArtGenerator {
   private charset: CharsetData | null = null;
   private bank: BankEntry | null = null;
+  /** Runs are serialized: a new run waits until a cancelled one has unwound. */
+  private tail: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly backend: ComputeBackend) {}
 
@@ -74,13 +76,26 @@ export class ArtGenerator {
     this.charset = null;
   }
 
-  async generate(
+  generate(
     fonts: readonly FontRef[],
     image: SourceImage,
     options: ArtOptions,
     signal?: AbortSignal,
     progress: ProgressFn = () => {},
   ): Promise<ArtResult> {
+    const run = this.tail.then(() => this.run(fonts, image, options, signal, progress));
+    this.tail = run.catch(() => {});
+    return run;
+  }
+
+  private async run(
+    fonts: readonly FontRef[],
+    image: SourceImage,
+    options: ArtOptions,
+    signal: AbortSignal | undefined,
+    progress: ProgressFn,
+  ): Promise<ArtResult> {
+    throwIfAborted(signal);
     if (fonts.length === 0) throw new Error("Add at least one font.");
     const ms = { charset: 0, glyphs: 0, target: 0, match: 0 };
     const cached = { charset: true, glyphs: true };
@@ -200,14 +215,17 @@ export class ArtGenerator {
     let done = 0;
     progress(0);
     try {
-      for await (const page of rasterizeGlyphs({
+      for await (const page of rasterizeGlyphs(
+      {
         codepoints,
         families: Array.from(fonts, (f) => charset.families[f]),
         widths: selection.widths,
         fontPx: geometry.fontPx,
         cellH: geometry.cellH,
         baselinePx: geometry.baselinePx,
-      })) {
+      },
+      signal,
+    )) {
         throwIfAborted(signal);
         await builder.addPage(page);
         done += page.glyphs.length;

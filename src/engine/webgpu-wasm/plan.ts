@@ -96,10 +96,13 @@ export interface Dispatch {
   work: number;
 }
 
+/** Fewer glyph groups per dispatch would make the per dispatch setup dominate. */
+export const MIN_GROUPS_PER_DISPATCH = 32;
+
 /**
- * Splits one batch into dispatches of bounded work so a single submission
- * never runs long enough to trip GPU watchdogs. Within a row range, group
- * chunks run in order and the first one initializes the results.
+ * Splits one batch into dispatches of bounded work, so work can be submitted
+ * in small, cancellable steps. Within a row range, group chunks run in order
+ * and the first one initializes the results.
  */
 export function planDispatches(
   rows: number,
@@ -108,15 +111,15 @@ export function planDispatches(
   maxWidth: number,
   binCount: number,
   maxGroupCount: number,
-  budget = 2 ** 30,
+  budget = 2 ** 28,
 ): Dispatch[] {
   const perRowGroup = Math.max(1, width * 4 * maxWidth * cellH * binCount);
-  const groupsPerChunk = Math.max(1, Math.min(maxGroupCount, Math.floor(budget / perRowGroup)));
+  const groupsTotal = Math.max(1, maxGroupCount);
+  const groupsPerChunk = Math.min(groupsTotal, Math.max(MIN_GROUPS_PER_DISPATCH, Math.floor(budget / perRowGroup)));
   const rowsPerChunk = Math.max(1, Math.min(rows, Math.floor(budget / (perRowGroup * groupsPerChunk))));
   const out: Dispatch[] = [];
   for (let r = 0; r < rows; r += rowsPerChunk) {
     const rowCount = Math.min(rowsPerChunk, rows - r);
-    const groupsTotal = Math.max(1, maxGroupCount);
     for (let g = 0; g < groupsTotal; g += groupsPerChunk) {
       const groupEnd = Math.min(groupsTotal, g + groupsPerChunk);
       out.push({
@@ -130,4 +133,29 @@ export function planDispatches(
     }
   }
   return out;
+}
+
+/**
+ * Picks how many dispatches go into one submission so each submission takes
+ * about `targetMs`: long enough to amortize the round trip, short enough
+ * for cancelling to feel immediate.
+ */
+export class SubmissionSizer {
+  private size = 1;
+  constructor(
+    private readonly targetMs = 30,
+    private readonly max = 1024,
+  ) {}
+
+  next(): number {
+    return this.size;
+  }
+
+  record(count: number, ms: number): void {
+    if (count <= 0) return;
+    const perDispatch = ms / count;
+    const ideal = perDispatch > 0 ? this.targetMs / perDispatch : this.size * 2;
+    // Grow at most twice as large per step, shrink immediately.
+    this.size = Math.max(1, Math.min(this.max, Math.floor(Math.min(ideal, count * 2))));
+  }
 }
