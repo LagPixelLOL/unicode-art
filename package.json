@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^26.6.6",
     "@webgpu/types": "^0.1.74",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",

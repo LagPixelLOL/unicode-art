@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: dark;
+}
+
+/* Native text output: no kerning, ligatures or contextual alternates, so
+   every character advances by exactly its own width. */
+.art-text {
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "clig" 0, "calt" 0, "kern" 0;
+  font-optical-sizing: none;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  letter-spacing: 0;
+  word-spacing: 0;
+  tab-size: 1;
+  width: max-content;
+  user-select: text;
+}

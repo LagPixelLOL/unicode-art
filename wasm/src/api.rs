@@ -259,11 +259,14 @@ pub fn solve_layout(
 
 /// Returns `[pixels, absDiff, inkA, inkB, maxDiff, differing, similarity]`.
 #[wasm_bindgen(js_name = compareRgba)]
-pub fn compare_rgba(a: &[u8], b: &[u8], threshold: f64) -> Result<Vec<f64>, JsError> {
-    if a.len() != b.len() || a.len() % 4 != 0 {
+pub fn compare_rgba(a: &[u8], b: &[u8], width: u32, threshold: f64, radius: u32) -> Result<Vec<f64>, JsError> {
+    if a.len() != b.len() {
         return Err(JsError::new("images differ in size"));
     }
-    let c = compare::compare_rgba(a, b, threshold);
+    if width == 0 || a.len() % (width as usize * 4) != 0 {
+        return Err(JsError::new("image width does not match the pixel buffer"));
+    }
+    let c = compare::compare_rgba(a, b, width as usize, threshold, radius as usize);
     Ok(vec![
         c.pixels as f64,
         c.abs_diff,

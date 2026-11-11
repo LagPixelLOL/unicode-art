@@ -22,13 +22,41 @@ impl Comparison {
     }
 }
 
-/// Compares the red channel of two equally sized RGBA buffers.
-pub fn compare_rgba(a: &[u8], b: &[u8], threshold: f64) -> Comparison {
+/// Red channel of an RGBA buffer as coverage, box blurred with `radius`.
+fn coverage(rgba: &[u8], width: usize, radius: usize) -> Vec<f32> {
+    let src: Vec<f32> = rgba.chunks_exact(4).map(|p| p[0] as f32 / 255.0).collect();
+    if radius == 0 || width == 0 {
+        return src;
+    }
+    let height = src.len() / width;
+    let blur = |input: &[f32], stride: usize, step: usize, len: usize, lines: usize| -> Vec<f32> {
+        let mut out = vec![0f32; input.len()];
+        for l in 0..lines {
+            let base = l * stride;
+            for i in 0..len {
+                let lo = i.saturating_sub(radius);
+                let hi = (i + radius).min(len - 1);
+                let sum: f32 = (lo..=hi).map(|k| input[base + k * step]).sum();
+                out[base + i * step] = sum / (hi - lo + 1) as f32;
+            }
+        }
+        out
+    };
+    let h = blur(&src, width, 1, width, height);
+    blur(&h, 1, width, height, width)
+}
+
+/// Compares the red channel of two equally sized RGBA images of `width`
+/// pixels per line. With a non-zero `radius` both images are box blurred
+/// first, so sub-pixel placement differences of fine textures do not count.
+pub fn compare_rgba(a: &[u8], b: &[u8], width: usize, threshold: f64, radius: usize) -> Comparison {
     assert_eq!(a.len(), b.len(), "image size mismatch");
-    let mut c = Comparison { pixels: (a.len() / 4) as u64, ..Default::default() };
-    for (pa, pb) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
-        let va = pa[0] as f64 / 255.0;
-        let vb = pb[0] as f64 / 255.0;
+    assert!(width > 0 && a.len() % (width * 4) == 0, "width does not match the image");
+    let ca = coverage(a, width, radius);
+    let cb = coverage(b, width, radius);
+    let mut c = Comparison { pixels: ca.len() as u64, ..Default::default() };
+    for (&va, &vb) in ca.iter().zip(&cb) {
+        let (va, vb) = (va as f64, vb as f64);
         let d = (va - vb).abs();
         c.abs_diff += d;
         c.ink_a += va;
