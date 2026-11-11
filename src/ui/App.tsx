@@ -246,13 +246,13 @@ export function App({ backend }: { backend: ComputeBackend }) {
             >
               {conversion.running ? "Cancel" : "Start"}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={!result}
                 onClick={() => void copy("plain")}
                 data-testid="copy-button"
-                className={`${buttonClass} min-w-0 flex-1 py-2 whitespace-nowrap`}
+                className={`${buttonClass} min-w-0 py-2 leading-tight break-words`}
               >
                 {copyLabel("plain", "Copy text")}
               </button>
@@ -262,12 +262,16 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 onClick={() => void copy("markdown")}
                 data-testid="copy-escaped-button"
                 title="Copies the text with Markdown punctuation backslash escaped, so it shows literally when pasted into Markdown"
-                className={`${buttonClass} min-w-0 flex-1 py-2 whitespace-nowrap`}
+                className={`${buttonClass} min-w-0 py-2 leading-tight break-words`}
               >
                 {copyLabel("markdown", "Copy escaped")}
               </button>
-              {result && lastTotalMs !== null && <Timing result={result} totalMs={lastTotalMs} verifyMs={verifyMs} />}
             </div>
+            {result && lastTotalMs !== null && (
+              <div className="flex">
+                <Timing result={result} totalMs={lastTotalMs} verifyMs={verifyMs} />
+              </div>
+            )}
             {result && s && (
               <p
                 className="text-xs text-zinc-500"

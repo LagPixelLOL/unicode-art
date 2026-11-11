@@ -31,9 +31,9 @@ export function Timing({ result, totalMs, verifyMs }: { result: ArtResult; total
   return (
     <HoverPanel
       trigger={`Converted in ${formatMs(totalMs)}`}
-      triggerClassName="shrink-0 rounded-md bg-zinc-800 px-2 py-2 text-xs whitespace-nowrap text-zinc-300 hover:bg-zinc-700 focus:outline-none"
+      triggerClassName="rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 focus:outline-none"
       width={320}
-      align="end"
+      align="start"
       testId="timing-breakdown"
     >
       <table className="w-full">
