@@ -83,7 +83,14 @@ describe("FontList", () => {
     };
     fireEvent.dragStart(items[0], { dataTransfer });
     at("dragOver", items[2], 15);
-    expect(items[2].className).toContain("border-b-zinc-300");
+    expect(items[2].getAttribute("data-drop")).toBe("bottom");
+    expect(screen.getAllByTestId("drop-bar")).toHaveLength(1);
+    // Hovering next to the dragged item itself shows no bar.
+    at("dragOver", items[1], 5);
+    expect(screen.queryByTestId("drop-bar")).toBeNull();
+    at("dragOver", items[1], 15);
+    expect(items[1].getAttribute("data-drop")).toBe("bottom");
+    at("dragOver", items[2], 15);
     at("drop", items[2], 15);
     expect(onMove).toHaveBeenLastCalledWith(0, 2);
     fireEvent.dragStart(items[2], { dataTransfer });

@@ -114,7 +114,7 @@ describe("FontStore", () => {
     expect(none.font).toBeNull();
     expect(store.entries).toHaveLength(1);
     const color = await store.add(src("color", "color.ttf"));
-    expect(color.warnings).toEqual([]);
+    expect(color.warnings).toEqual(["color: 2 color glyphs are skipped, since the output is monochrome."]);
     expect(color.font?.colorGlyphs).toBe(2);
   });
 

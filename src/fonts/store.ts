@@ -204,6 +204,9 @@ export class FontStore {
       colorGlyphs: faces.reduce((s, f) => s + f.info.colorGlyphs, 0),
     };
     if (codepoints.length === 0) warnings.push(`${font.name}: has no usable characters; it contributes nothing.`);
+    if (font.colorGlyphs > 0) {
+      warnings.push(`${font.name}: ${font.colorGlyphs} color glyphs are skipped, since the output is monochrome.`);
+    }
     for (const f of faces) document.fonts.add(f.face);
     return { font, warnings };
   }

@@ -75,7 +75,7 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
 
   return (
     <ol
-      className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1"
+      className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain py-1 pr-1"
       aria-label="Fonts in priority order"
       data-testid="font-list"
       onDragLeave={(e) => {
@@ -85,8 +85,14 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
       {fonts.map((f, i) => {
         const p = provided?.get(f.family);
         const u = used?.get(f.family);
-        const marker =
-          drop?.index === i ? (drop.after ? "border-b-zinc-300" : "border-t-zinc-300") : "border-zinc-800";
+        // Insertion bar in the gap above or below this item, hidden when the
+        // drop would not move anything.
+        const bar =
+          drop?.index === i && (dragFrom < 0 || dropIndex(dragFrom, i, drop.after) !== dragFrom)
+            ? drop.after
+              ? "bottom"
+              : "top"
+            : null;
         return (
           <li
             key={f.id}
@@ -117,8 +123,16 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
               setDragFrom(-1);
               if (Number.isInteger(from) && from >= 0) onMove(from, dropIndex(from, i, position(e)));
             }}
-            className={`flex min-w-0 cursor-grab items-center gap-1 rounded-md border-2 bg-zinc-900 px-2 py-1 active:cursor-grabbing ${marker} ${dragFrom === i ? "opacity-50" : ""}`}
+            data-drop={bar ?? undefined}
+            className={`relative flex min-w-0 cursor-grab items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 active:cursor-grabbing ${dragFrom === i ? "opacity-50" : ""}`}
           >
+            {bar && (
+              <div
+                aria-hidden="true"
+                data-testid="drop-bar"
+                className={`pointer-events-none absolute right-0 left-0 h-0.5 rounded-full bg-white ${bar === "top" ? "-top-[3px]" : "-bottom-[3px]"}`}
+              />
+            )}
             <span className="text-zinc-600">
               <GripIcon />
             </span>
