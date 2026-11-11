@@ -376,6 +376,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 used={used}
                 onMove={(a, b) => store.move(a, b)}
                 onRemove={(id) => store.remove(id)}
+                locked={conversion.running}
               />
             </div>
             <p className="mt-2 text-xs text-zinc-500">

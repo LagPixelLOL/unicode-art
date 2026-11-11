@@ -101,6 +101,14 @@ describe("FontList", () => {
     expect(onMove).toHaveBeenCalledTimes(2);
   });
 
+  it("can be locked while fonts are in use", () => {
+    const onMove = vi.fn();
+    render(<FontList fonts={[entry(1, "A"), entry(2, "B")]} provided={null} used={null} onMove={onMove} onRemove={onMove} locked />);
+    const items = screen.getAllByTestId("font-item");
+    expect(items[0].getAttribute("draggable")).toBe("false");
+    for (const b of within(items[1]).getAllByRole("button")) expect((b as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("has an empty state", () => {
     render(<FontList fonts={[]} provided={null} used={null} onMove={() => {}} onRemove={() => {}} />);
     expect(screen.getByText("No fonts loaded.")).toBeTruthy();
