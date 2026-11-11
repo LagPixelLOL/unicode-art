@@ -1,12 +1,45 @@
-// Predefined font sets, downloaded from Google Fonts at run time.
+// Predefined font sets, downloaded at run time when first needed.
 
-import { type FilesProgress, type LoadReport, download, loadStylesheetFaces, parseFontFaces } from "./sources";
+import {
+  type FilesProgress,
+  type FontSource,
+  type LoadReport,
+  download,
+  loadFontUrl,
+  loadStylesheetFaces,
+  mapLimit,
+  parseFontFaces,
+} from "./sources";
+
+/** A font that is downloaded on demand: a Google Fonts family or a font file URL (served with CORS). */
+export type RemoteFont = { kind: "google"; family: string } | { kind: "url"; name: string; url: string };
+
+export const googleFont = (family: string): RemoteFont => ({ kind: "google", family });
+
+/** Identity of a remote font, used to match lists against presets. */
+export function remoteKey(f: RemoteFont): string {
+  return f.kind === "google" ? `google:${f.family}` : `url:${f.url}`;
+}
+
+export function remoteName(f: RemoteFont): string {
+  return f.kind === "google" ? f.family : f.name;
+}
+
+/** Where a remote font comes from, for display. */
+export function remoteOrigin(f: RemoteFont): string {
+  if (f.kind === "google") return "Google Fonts";
+  try {
+    return new URL(f.url).hostname;
+  } catch {
+    return f.url;
+  }
+}
 
 export interface Preset {
   id: string;
   label: string;
-  /** Google Fonts family names in priority order. */
-  families: readonly string[];
+  /** Fonts in priority order. */
+  fonts: readonly RemoteFont[];
 }
 
 /**
@@ -69,21 +102,27 @@ export const NOTO_FAMILIES: readonly string[] = [
 
 const CJK = ["JP", "KR", "SC", "TC", "HK"];
 
+/** gg sans (Discord). raw.githubusercontent.com allows cross-origin requests; github.com/raw links do not. */
+export const GG_SANS_URL = "https://raw.githubusercontent.com/damnxav/gg-sans-font/refs/heads/main/ggsans.woff2";
+
+const google = (families: readonly string[]) => families.map(googleFont);
+
 export const PRESETS: readonly Preset[] = [
-  { id: "noto-all", label: `Noto, entire family (${NOTO_FAMILIES.length} fonts)`, families: NOTO_FAMILIES },
+  { id: "noto-all", label: `Noto, entire family (${NOTO_FAMILIES.length} fonts)`, fonts: google(NOTO_FAMILIES) },
   {
     id: "noto-sans",
     label: "Noto Sans with symbols and math",
-    families: ["Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Math"],
+    fonts: google(["Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Math"]),
   },
   {
     id: "noto-sans-cjk",
     label: "Noto Sans with symbols and CJK",
-    families: ["Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", ...CJK.map((c) => `Noto Sans ${c}`)],
+    fonts: google(["Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", ...CJK.map((c) => `Noto Sans ${c}`)]),
   },
-  { id: "noto-serif", label: "Noto Serif", families: ["Noto Serif"] },
-  { id: "noto-mono", label: "Noto Sans Mono", families: ["Noto Sans Mono"] },
-  { id: "none", label: "No fonts (clear the list)", families: [] },
+  { id: "noto-serif", label: "Noto Serif", fonts: google(["Noto Serif"]) },
+  { id: "noto-mono", label: "Noto Sans Mono", fonts: google(["Noto Sans Mono"]) },
+  { id: "gg-sans", label: "gg sans (Discord)", fonts: [{ kind: "url", name: "gg sans", url: GG_SANS_URL }] },
+  { id: "none", label: "No fonts (clear the list)", fonts: [] },
 ];
 
 export const DEFAULT_PRESET = "noto-all";
@@ -93,11 +132,11 @@ export const CUSTOM_PRESET = "custom";
 
 /**
  * The preset whose fonts the list holds, in the same order, or null when the
- * list was customized. `remotes` has the Google Fonts family of every entry,
- * or null for fonts the user added themselves.
+ * list was customized. `keys` has the remoteKey of every entry, or null for
+ * fonts the user added themselves.
  */
-export function matchPreset(remotes: readonly (string | null)[], presets: readonly Preset[] = PRESETS): string | null {
-  const hit = presets.find((p) => p.families.length === remotes.length && p.families.every((f, i) => remotes[i] === f));
+export function matchPreset(keys: readonly (string | null)[], presets: readonly Preset[] = PRESETS): string | null {
+  const hit = presets.find((p) => p.fonts.length === keys.length && p.fonts.every((f, i) => keys[i] === remoteKey(f)));
   return hit?.id ?? null;
 }
 
@@ -152,4 +191,56 @@ export async function loadGoogleFamilies(
   const files: FilesProgress = (d, total) => onProgress?.({ phase: "files", done: d, total });
   const report = await loadStylesheetFaces(sheets.flat(), families, signal, files, fetchFn);
   return { fonts: report.fonts, warnings: [...warnings, ...report.warnings] };
+}
+
+/**
+ * Downloads remote fonts of any kind. Every returned source carries the
+ * remoteKey of the font it belongs to. Failures are reported, not fatal.
+ */
+export async function loadRemoteFonts(
+  fonts: readonly RemoteFont[],
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+  fetchFn: typeof fetch = fetch,
+): Promise<LoadReport> {
+  const families = fonts.flatMap((f) => (f.kind === "google" ? [f.family] : []));
+  const urls = fonts.flatMap((f) => (f.kind === "url" ? [f] : []));
+  const progress = { google: [0, 0], url: [0, urls.length] };
+  const report = () => onProgress?.(progress.google[0] + progress.url[0], progress.google[1] + progress.url[1]);
+  report();
+  const [g, u] = await Promise.all([
+    loadGoogleFamilies(
+      families,
+      signal,
+      (p) => {
+        if (p.phase !== "files") return;
+        progress.google = [p.done, p.total];
+        report();
+      },
+      fetchFn,
+    ),
+    mapLimit(
+      urls,
+      4,
+      async (f): Promise<LoadReport> => {
+        try {
+          const r = await loadFontUrl(f.url, signal, undefined, fetchFn);
+          // A URL is one list entry, even when it is a stylesheet with several families.
+          const faces = r.fonts.flatMap((s) => s.faces);
+          return { fonts: faces.length ? [{ name: f.name, faces }] : [], warnings: r.warnings.map((w) => `${f.name}: ${w}`) };
+        } catch (e) {
+          if (signal?.aborted) throw e;
+          return { fonts: [], warnings: [`${f.name}: ${e instanceof Error ? e.message : String(e)}`] };
+        } finally {
+          progress.url[0]++;
+          report();
+        }
+      },
+      signal,
+    ),
+  ]);
+  const keyed = (source: FontSource, font: RemoteFont): FontSource => ({ ...source, key: remoteKey(font) });
+  const out: FontSource[] = g.fonts.map((s) => keyed(s, googleFont(s.name)));
+  u.forEach((r, i) => out.push(...r.fonts.map((s) => keyed(s, urls[i]))));
+  return { fonts: out, warnings: [...g.warnings, ...u.flatMap((r) => r.warnings)] };
 }

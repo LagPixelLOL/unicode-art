@@ -13,6 +13,8 @@ export interface FontSource {
   faces: FaceSource[];
   /** Prefer the family name stored in the font over `name` (for files). */
   preferFamilyName?: boolean;
+  /** remoteKey of the remote font this source was downloaded for. */
+  key?: string;
 }
 
 export interface CssFace {
@@ -173,6 +175,18 @@ export async function loadStylesheetFaces(
 }
 
 /**
+ * GitHub file links (github.com/owner/repo/raw/... or /blob/...) redirect
+ * without CORS headers, so browsers cannot follow them; the same file on
+ * raw.githubusercontent.com is served with CORS.
+ */
+export function corsFriendlyUrl(url: string): string {
+  const m = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:raw|blob)\/(.+)$/i.exec(url);
+  if (!m) return url;
+  const [, owner, repo, rest] = m;
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${rest.replace(/[?#].*$/, "")}`;
+}
+
+/**
  * Downloads a font file, or every family of a stylesheet such as
  * https://fonts.googleapis.com/css2?family=Noto+Sans.
  */
@@ -191,6 +205,7 @@ export async function loadFontUrl(
   if (!["http:", "https:", "data:", "blob:"].includes(parsed.protocol)) {
     throw new DownloadError("Only http, https, data and blob URLs are supported.");
   }
+  url = corsFriendlyUrl(url);
   const bytes = await download(url, signal, fetchFn);
   if (isFontData(bytes)) {
     const name = nameFromUrl(url);

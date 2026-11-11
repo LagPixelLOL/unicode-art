@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WebGpuWasmBackend } from "../../src/engine/webgpu-wasm/backend";
+import { googleFont, remoteKey, remoteName } from "../../src/fonts/presets";
 import type { FontSource } from "../../src/fonts/sources";
 import { FontStore, type RemoteLoader } from "../../src/fonts/store";
 import { fixture, loadCore } from "./helpers/core";
@@ -40,13 +41,14 @@ const src = (name: string, file: string, unicodeRange: string | null = null, pre
 });
 
 function remote(map: Record<string, FontSource>, calls: string[][] = []): RemoteLoader {
-  return async (families, signal, onProgress) => {
-    calls.push([...families]);
-    onProgress(0, families.length);
+  return async (remotes, signal, onProgress) => {
+    const names = remotes.map(remoteName);
+    calls.push(names);
+    onProgress(0, names.length);
     signal?.throwIfAborted();
-    const fonts = families.flatMap((f) => (map[f] ? [map[f]] : []));
-    onProgress(families.length, families.length);
-    return { fonts, warnings: families.filter((f) => !map[f]).map((f) => `${f}: missing`) };
+    const fonts = remotes.flatMap((f) => (map[remoteName(f)] ? [{ ...map[remoteName(f)], key: remoteKey(f) }] : []));
+    onProgress(names.length, names.length);
+    return { fonts, warnings: names.filter((f) => !map[f]).map((f) => `${f}: missing`) };
   };
 }
 
@@ -123,7 +125,7 @@ describe("FontStore", () => {
     const calls: string[][] = [];
     const store = new FontStore(backend, remote({ A: src("A", "sans.ttf"), B: src("B", "mono.ttf") }, calls));
     await store.add(src("old", "variable.ttf"));
-    store.setRemote(["A", "Missing", "B"]);
+    store.setRemote(["A", "Missing", "B"].map(googleFont));
     expect(registered.size).toBe(0);
     expect(store.entries.map((e) => [e.name, e.status])).toEqual([
       ["A", "pending"],
@@ -155,7 +157,7 @@ describe("FontStore", () => {
 
   it("returns fonts to pending when loading is cancelled and serializes loads", async () => {
     const store = new FontStore(backend, remote({ A: src("A", "sans.ttf") }));
-    store.setRemote(["A"]);
+    store.setRemote([googleFont("A")]);
     const ctrl = new AbortController();
     ctrl.abort();
     await expect(store.ensureReady(ctrl.signal)).rejects.toThrow();
@@ -192,11 +194,11 @@ describe("FontStore", () => {
   it("drops fonts removed while they were downloading", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    const store = new FontStore(backend, async (families) => {
+    const store = new FontStore(backend, async (remotes) => {
       await gate;
-      return { fonts: families.map((f) => src(f, "sans.ttf")), warnings: [] };
+      return { fonts: remotes.map((f) => ({ ...src(remoteName(f), "sans.ttf"), key: remoteKey(f) })), warnings: [] };
     });
-    store.setRemote(["A", "B"]);
+    store.setRemote([googleFont("A"), { kind: "url", name: "B", url: "https://h.test/b.woff2" }]);
     const loading = store.ensureReady();
     store.remove(store.entries[0].id);
     release();

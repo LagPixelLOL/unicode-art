@@ -4,6 +4,7 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComputeBackend } from "../../src/engine/backend";
+import { googleFont } from "../../src/fonts/presets";
 import type { FontEntry } from "../../src/fonts/store";
 import { App } from "../../src/ui/App";
 import { ExclusionInfo } from "../../src/ui/ExclusionInfo";
@@ -15,7 +16,7 @@ import { installFakeCanvas } from "./helpers/fakeCanvas";
 afterEach(cleanup);
 
 function entry(id: number, name: string, status: FontEntry["status"] = "pending", extra: Partial<FontEntry> = {}): FontEntry {
-  return { id, family: `uaf-${id}`, name, status, remote: name, error: null, font: null, ...extra };
+  return { id, family: `uaf-${id}`, name, status, remote: googleFont(name), error: null, font: null, ...extra };
 }
 
 const readyFont = (id: number, name: string): FontEntry =>
@@ -41,17 +42,24 @@ describe("FontList", () => {
   it("shows status and statistics and moves fonts with buttons", () => {
     const onMove = vi.fn();
     const onRemove = vi.fn();
-    const fonts = [readyFont(1, "Noto Sans"), entry(2, "Noto Sans JP"), entry(3, "Broken", "failed", { error: "no usable font file" }), entry(4, "Loading", "loading")];
+    const fonts = [
+      readyFont(1, "Noto Sans"),
+      entry(2, "Noto Sans JP"),
+      entry(3, "Broken", "failed", { error: "no usable font file" }),
+      entry(4, "Loading", "loading"),
+      entry(5, "gg", "pending", { remote: { kind: "url", name: "gg", url: "https://raw.githubusercontent.com/x/y.woff2" } }),
+    ];
     render(<FontList fonts={fonts} provided={new Map([["uaf-1", 1200]])} used={new Map([["uaf-1", 12]])} onMove={onMove} onRemove={onRemove} />);
     const items = screen.getAllByTestId("font-item");
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(5);
     expect(items[0].textContent).toContain("1. Noto Sans");
     expect(items[0].textContent).toContain("WOFF2, 2 files, 3.3 MiB, variable, 1,500 chars, provides 1,200, 12 used");
     expect(items[1].textContent).toContain("Downloaded from Google Fonts when you press Start");
     expect(items[2].textContent).toContain("Failed: no usable font file");
     expect(items[3].textContent).toContain("Downloading...");
+    expect(items[4].textContent).toContain("Downloaded from raw.githubusercontent.com when you press Start");
     expect(within(items[0]).getByLabelText("Move up")).toHaveProperty("disabled", true);
-    expect(within(items[3]).getByLabelText("Move down")).toHaveProperty("disabled", true);
+    expect(within(items[4]).getByLabelText("Move down")).toHaveProperty("disabled", true);
     fireEvent.click(within(items[1]).getByLabelText("Move up"));
     fireEvent.click(within(items[1]).getByLabelText("Move down"));
     fireEvent.click(within(items[2]).getByLabelText("Remove font"));

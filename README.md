@@ -8,10 +8,13 @@ ready to copy.
   anywhere. A new image always replaces the current one. Transparent areas are
   padded with white and colors are converted to grey, since the output is
   monochrome.
-- Fonts come from presets (downloaded from Google Fonts at run time, only when
-  a conversion needs them; the default preset is the entire Noto family),
-  from uploaded files (TTF, OTF, TTC, WOFF, WOFF2), or from a URL of a font
-  file or of a stylesheet such as `https://fonts.googleapis.com/css2?family=Inter`.
+- Fonts come from presets (downloaded at run time, only when a conversion
+  needs them; the default preset is the entire Noto family from Google Fonts,
+  and there is a gg sans preset fetched from GitHub), from uploaded files
+  (TTF, OTF, TTC, WOFF, WOFF2), or from a URL of a font file or of a
+  stylesheet such as `https://fonts.googleapis.com/css2?family=Inter`.
+  GitHub file links (`github.com/.../raw/...` or `/blob/...`) are rewritten
+  to `raw.githubusercontent.com`, which allows cross-origin downloads.
 - Choosing a preset in the dropdown replaces the font list right away. Once
   the list is edited the dropdown shows "Custom", and it shows the preset
   again whenever the list matches one exactly.

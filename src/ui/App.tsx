@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { SourceImage } from "../art/generate";
 import { type DomCheck, type DomMeasurements, evaluateDom } from "../art/verify";
 import type { ComputeBackend, ExclusionRule } from "../engine/backend";
-import { CUSTOM_PRESET, DEFAULT_PRESET, PRESETS, loadGoogleFamilies, matchPreset } from "../fonts/presets";
+import { CUSTOM_PRESET, DEFAULT_PRESET, PRESETS, loadRemoteFonts, matchPreset, remoteKey } from "../fonts/presets";
 import { FontStore, formatBytes, listSize } from "../fonts/store";
 import { classifyFile, decodeImage, imageFromItems } from "../image/load";
 import { Badge, Progress, Section, buttonClass, inputClass } from "./common";
@@ -33,9 +33,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const notify = useNotify();
   const store = useMemo(
     () =>
-      new FontStore(backend, (families, signal, onProgress) =>
-        loadGoogleFamilies(families, signal, (p) => p.phase === "files" && onProgress(p.done, p.total)),
-      ),
+      new FontStore(backend, (fonts, signal, onProgress) => loadRemoteFonts(fonts, signal, onProgress)),
     [backend],
   );
   const entries = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -72,7 +70,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   }, [listKey, clear]);
   const size = listSize(entries);
 
-  const presetId = useMemo(() => matchPreset(entries.map((e) => e.remote)) ?? CUSTOM_PRESET, [entries]);
+  const presetId = useMemo(() => matchPreset(entries.map((e) => (e.remote ? remoteKey(e.remote) : null))) ?? CUSTOM_PRESET, [entries]);
   const options = readOptions(widthText, detailText, invert);
   const inputKey = `${image?.id}|${typeof options === "string" ? options : JSON.stringify(options)}|${entries.map((e) => e.id).join(",")}`;
   const stale = !!result && runKey !== null && runKey !== inputKey && !conversion.running;
@@ -424,7 +422,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
             )}
             <p className="mt-2 text-xs text-zinc-500">
               Drag to reorder. A character missing from a font is looked up in the fonts below it; characters no font
-              has are never used. Preset fonts come from Google Fonts and are downloaded when you press Start.
+              has are never used. Preset fonts are downloaded (mostly from Google Fonts) when you press Start.
             </p>
           </Section>
 

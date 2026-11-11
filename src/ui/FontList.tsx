@@ -1,6 +1,7 @@
 // Font priority list with drag and drop reordering.
 
 import { useState } from "react";
+import { remoteOrigin } from "../fonts/presets";
 import { type FontEntry, formatBytes } from "../fonts/store";
 import { DownIcon, GripIcon, UpIcon, XIcon } from "./icons";
 import { asciiOnly, plural } from "./text";
@@ -20,7 +21,7 @@ export function isInternalDrag(dt: DataTransfer | null): boolean {
 function describe(e: FontEntry, provided?: number, used?: number): string {
   switch (e.status) {
     case "pending":
-      return "Downloaded from Google Fonts when you press Start";
+      return `Downloaded from ${e.remote ? remoteOrigin(e.remote) : "the web"} when you press Start`;
     case "loading":
       return "Downloading...";
     case "failed":

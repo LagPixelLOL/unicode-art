@@ -1,13 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_PRESET,
+  GG_SANS_URL,
   NOTO_FAMILIES,
   PRESETS,
+  type RemoteFont,
   googleCssUrls,
+  googleFont,
   loadGoogleFamilies,
+  loadRemoteFonts,
   matchPreset,
+  remoteKey,
+  remoteName,
+  remoteOrigin,
 } from "../../src/fonts/presets";
 import {
+  corsFriendlyUrl,
   download,
   groupByFamily,
   isFontData,
@@ -182,6 +190,26 @@ describe("stylesheets and URLs", () => {
     expect(progress).toHaveBeenLastCalledWith(3, 3);
   });
 
+  it("rewrites GitHub file links to the CORS enabled raw host", async () => {
+    expect(corsFriendlyUrl("https://github.com/damnxav/gg-sans-font/raw/refs/heads/main/ggsans.woff2")).toBe(
+      "https://raw.githubusercontent.com/damnxav/gg-sans-font/refs/heads/main/ggsans.woff2",
+    );
+    expect(corsFriendlyUrl("https://www.github.com/o/r/blob/main/fonts/A.ttf?raw=true")).toBe(
+      "https://raw.githubusercontent.com/o/r/main/fonts/A.ttf",
+    );
+    expect(corsFriendlyUrl("https://github.com/o/r")).toBe("https://github.com/o/r");
+    expect(corsFriendlyUrl("https://h.test/a.ttf")).toBe("https://h.test/a.ttf");
+    const calls: string[] = [];
+    const r = await loadFontUrl(
+      "https://github.com/o/r/raw/main/A.ttf",
+      undefined,
+      undefined,
+      fakeFetch({ "https://raw.githubusercontent.com/o/r/main/A.ttf": TTF }, calls),
+    );
+    expect(calls).toEqual(["https://raw.githubusercontent.com/o/r/main/A.ttf"]);
+    expect(r.fonts[0].name).toBe("A.ttf");
+  });
+
   it("rejects bad URLs and non font content", async () => {
     const f = fakeFetch({ "https://h.test/page": "<html></html>", "https://h.test/empty.css": "@font-face { font-family: x }" });
     await expect(loadFontUrl("fonts.test/x.ttf", undefined, undefined, f)).rejects.toThrow(/full URL/);
@@ -217,21 +245,71 @@ describe("presets", () => {
     expect(NOTO_FAMILIES).toContain("Noto Emoji");
     expect(NOTO_FAMILIES).toContain("Noto Sans JP");
     expect(NOTO_FAMILIES).not.toContain("Noto Color Emoji");
-    expect(PRESETS.find((p) => p.id === DEFAULT_PRESET)?.families).toBe(NOTO_FAMILIES);
-    expect(PRESETS.find((p) => p.id === "none")?.families).toEqual([]);
+    expect(PRESETS.find((p) => p.id === DEFAULT_PRESET)?.fonts.map(remoteName)).toEqual(NOTO_FAMILIES);
+    expect(PRESETS.find((p) => p.id === "none")?.fonts).toEqual([]);
+    // gg sans is fetched from the host that allows cross-origin requests.
+    expect(PRESETS.find((p) => p.id === "gg-sans")?.fonts).toEqual([{ kind: "url", name: "gg sans", url: GG_SANS_URL }]);
+    expect(new URL(GG_SANS_URL).hostname).toBe("raw.githubusercontent.com");
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
   });
 
   it("recognizes lists that match a preset", () => {
-    expect(matchPreset([...NOTO_FAMILIES])).toBe("noto-all");
-    expect(matchPreset(["Noto Sans Mono"])).toBe("noto-mono");
+    const keys = (names: (string | null)[]) => names.map((n) => (n === null ? null : remoteKey(googleFont(n))));
+    expect(matchPreset(keys([...NOTO_FAMILIES]))).toBe("noto-all");
+    expect(matchPreset(keys(["Noto Sans Mono"]))).toBe("noto-mono");
     expect(matchPreset([])).toBe("none");
+    expect(matchPreset([`url:${GG_SANS_URL}`])).toBe("gg-sans");
     // Reordered, extended, shortened or containing user fonts: custom.
-    expect(matchPreset(["Noto Sans Symbols", "Noto Sans", "Noto Sans Symbols 2", "Noto Sans Math"])).toBeNull();
-    expect(matchPreset(["Noto Sans Mono", "Noto Serif"])).toBeNull();
-    expect(matchPreset(NOTO_FAMILIES.slice(1))).toBeNull();
+    expect(matchPreset(keys(["Noto Sans Symbols", "Noto Sans", "Noto Sans Symbols 2", "Noto Sans Math"]))).toBeNull();
+    expect(matchPreset(keys(["Noto Sans Mono", "Noto Serif"]))).toBeNull();
+    expect(matchPreset(keys(NOTO_FAMILIES.slice(1)))).toBeNull();
     expect(matchPreset([null])).toBeNull();
-    expect(matchPreset(["Noto Serif"])).toBe("noto-serif");
+    // The same name from another source is not the same font.
+    expect(matchPreset(["url:https://h.test/Noto Serif.woff2"])).toBeNull();
+    expect(matchPreset(keys(["Noto Serif"]))).toBe("noto-serif");
+  });
+
+  it("describes remote fonts", () => {
+    const url: RemoteFont = { kind: "url", name: "gg sans", url: GG_SANS_URL };
+    expect(remoteKey(googleFont("Noto Sans"))).toBe("google:Noto Sans");
+    expect(remoteKey(url)).toBe(`url:${GG_SANS_URL}`);
+    expect(remoteName(url)).toBe("gg sans");
+    expect(remoteOrigin(googleFont("x"))).toBe("Google Fonts");
+    expect(remoteOrigin(url)).toBe("raw.githubusercontent.com");
+    expect(remoteOrigin({ kind: "url", name: "x", url: "nope" })).toBe("nope");
+  });
+
+  it("downloads Google families and font URLs together, keyed by font", async () => {
+    const css = googleCssUrls(["Noto Sans"])[0];
+    const progress: [number, number][] = [];
+    const r = await loadRemoteFonts(
+      [
+        googleFont("Noto Sans"),
+        { kind: "url", name: "gg sans", url: "https://raw.test/gg.woff2" },
+        { kind: "url", name: "Sheet", url: "https://raw.test/s.css" },
+        { kind: "url", name: "Gone", url: "https://raw.test/gone.woff2" },
+      ],
+      undefined,
+      (d, t) => progress.push([d, t]),
+      fakeFetch({
+        [css]: GOOGLE_CSS,
+        "https://fonts.gstatic.com/a.woff2": WOFF2,
+        "https://fonts.gstatic.com/b.woff2": WOFF2,
+        "https://raw.test/gg.woff2": WOFF2,
+        "https://raw.test/s.css": GOOGLE_CSS,
+        "https://fonts.googleapis.com/sym.woff2": WOFF2,
+        "https://raw.test/sym.woff2": WOFF2,
+      }),
+    );
+    expect(r.fonts.map((f) => [f.key, f.name, f.faces.length])).toEqual([
+      ["google:Noto Sans", "Noto Sans", 2],
+      ["url:https://raw.test/gg.woff2", "gg sans", 1],
+      ["url:https://raw.test/s.css", "Sheet", 3],
+    ]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/^Gone: Could not download .*HTTP 404/);
+    expect(progress.at(-1)).toEqual([5, 5]);
+    expect(await loadRemoteFonts([])).toEqual({ fonts: [], warnings: [] });
   });
 
   it("batches families into CSS2 requests", () => {

@@ -4,6 +4,7 @@
 
 import type { FontRef } from "../art/charset";
 import type { ComputeBackend, FontInfoData } from "../engine/backend";
+import { type RemoteFont, remoteKey, remoteName } from "./presets";
 import type { FontSource } from "./sources";
 import { type CodeRange, inRanges, parseUnicodeRange } from "./unicodeRange";
 
@@ -106,14 +107,14 @@ export interface FontEntry {
   family: string;
   name: string;
   status: FontStatus;
-  /** Google Fonts family to download, for lazily loaded entries. */
-  remote: string | null;
+  /** Where to download the font from, for lazily loaded entries. */
+  remote: RemoteFont | null;
   error: string | null;
   font: LoadedFont | null;
 }
 
 export type RemoteLoader = (
-  families: readonly string[],
+  fonts: readonly RemoteFont[],
   signal: AbortSignal | undefined,
   onProgress: (done: number, total: number) => void,
 ) => Promise<{ fonts: FontSource[]; warnings: string[] }>;
@@ -252,7 +253,7 @@ export class FontStore {
     for (const f of entry.font?.faces ?? []) document.fonts.delete(f.face);
   }
 
-  private allocate(name: string, remote: string | null): FontEntry {
+  private allocate(name: string, remote: RemoteFont | null): FontEntry {
     const id = this.nextId++;
     return { id, family: `uaf-${id}`, name, status: "pending", remote, error: null, font: null };
   }
@@ -269,9 +270,9 @@ export class FontStore {
   }
 
   /** Replaces the whole list with fonts that are downloaded when first needed. */
-  setRemote(families: readonly string[]): void {
+  setRemote(fonts: readonly RemoteFont[]): void {
     for (const e of this.items) this.unregister(e);
-    this.items = families.map((f) => this.allocate(f, f));
+    this.items = fonts.map((f) => this.allocate(remoteName(f), f));
     this.changed();
   }
 
@@ -310,13 +311,13 @@ export class FontStore {
       );
       signal?.throwIfAborted();
       const warnings = [...report.warnings];
-      const byName = new Map(report.fonts.map((f) => [f.name, f]));
+      const byKey = new Map(report.fonts.map((f) => [f.key ?? f.name, f]));
       for (let i = 0; i < pending.length; i++) {
         signal?.throwIfAborted();
         onProgress?.("Registering fonts", i, pending.length);
         const entry = pending[i];
         if (!this.items.some((e) => e.id === entry.id)) continue; // Removed meanwhile.
-        const source = byName.get(entry.remote!);
+        const source = byKey.get(remoteKey(entry.remote!));
         if (!source) {
           this.update(entry.id, { status: "failed", error: "could not be downloaded" });
           continue;

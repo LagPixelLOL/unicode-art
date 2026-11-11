@@ -93,7 +93,7 @@ export function useFontLoader(store: FontStore) {
   const applyPreset = useCallback(
     (id: string) => {
       const preset = PRESETS.find((p) => p.id === id);
-      if (preset) store.setRemote(preset.families);
+      if (preset) store.setRemote(preset.fonts);
     },
     [store],
   );
