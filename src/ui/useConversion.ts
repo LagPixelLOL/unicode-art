@@ -51,6 +51,11 @@ export function useConversion(backend: ComputeBackend, store: FontStore) {
         if (current.current === ctrl) setState(s);
       };
       const started = performance.now();
+      // A new run starts from a clean slate: no output or stats of the last one.
+      setResult(null);
+      setCanvasCheck(null);
+      setVerifyMs(null);
+      setLastTotalMs(null);
       try {
         set({ kind: "running", stage: "fonts", progress: 0, detail: "" });
         const warnings = await store.ensureReady(signal, (phase, done, total) =>
@@ -68,8 +73,6 @@ export function useConversion(backend: ComputeBackend, store: FontStore) {
         signal.throwIfAborted();
         const totalMs = performance.now() - started;
         setResult(r);
-        setCanvasCheck(null);
-        setVerifyMs(null);
         setLastTotalMs(totalMs);
 
         set({ kind: "running", stage: "verify", progress: 0, detail: "" });
