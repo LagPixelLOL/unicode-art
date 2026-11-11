@@ -4,6 +4,9 @@ use unicode_art_core::charset::{EXCLUDED_RANGES, exclusion_rules, is_usable, mer
 fn accepts_plain_left_to_right_characters() {
     for cp in [
         0x20, 0x41, 0x7E, 0xA0, 0xE9, 0x3000, 0x4E00, 0x2588, 0xE000, 0x1F600, 0x0E01, 0xAC00,
+        // Ogham space mark is visible, hangul syllables are precomposed,
+        // fullwidth forms, box drawing, braille, math alphanumerics.
+        0x1680, 0xD7A3, 0xFF21, 0x2500, 0x2800, 0x1D400, 0x20AC, 0xFB01, 0x200A, 0x3042,
     ] {
         assert!(is_usable(cp), "U+{cp:04X} should be usable");
     }
@@ -36,6 +39,37 @@ fn rejects_unusable_characters() {
         (0xD800, "surrogate"),
         (0x110000, "beyond unicode"),
         (0x3164, "hangul filler"),
+        (0x0628, "arabic beh (joining)"),
+        (0x0644, "arabic lam"),
+        (0x064E, "arabic fatha"),
+        (0x0660, "arabic-indic digit zero"),
+        (0x06F0, "extended arabic-indic digit"),
+        (0x0710, "syriac alaph"),
+        (0x07C0, "nko digit"),
+        (0xFB50, "arabic presentation form"),
+        (0xFEFB, "lam-alef ligature form"),
+        (0xFDFD, "bismillah ligature"),
+        (0x200C, "zero width non-joiner"),
+        (0x200E, "left-to-right mark"),
+        (0x2066, "left-to-right isolate"),
+        (0x2069, "pop directional isolate"),
+        (0x094D, "devanagari virama"),
+        (0x0BCD, "tamil virama"),
+        (0x0E48, "thai tone mark"),
+        (0x0F40, "tibetan letter"),
+        (0x1820, "mongolian letter"),
+        (0x180B, "mongolian variation selector"),
+        (0x1160, "hangul jungseong filler"),
+        (0x034F, "combining grapheme joiner"),
+        (0x00AD, "soft hyphen"),
+        (0x2060, "word joiner"),
+        (0x20E3, "combining enclosing keycap"),
+        (0xFFF9, "interlinear annotation anchor"),
+        (0xE0100, "variation selector supplement"),
+        (0xE007F, "cancel tag"),
+        (0x10900, "phoenician (right-to-left)"),
+        (0x1E900, "adlam (right-to-left, joining)"),
+        (0x11000, "brahmi sign"),
     ];
     for (cp, name) in cases {
         assert!(!is_usable(cp), "{name} (U+{cp:04X}) should be rejected");

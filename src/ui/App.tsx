@@ -210,15 +210,44 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const s = result?.stats;
 
   return (
-    <div className="flex h-full flex-col" data-state={appState}>
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-5 py-3">
+    <div className="flex h-full flex-col overflow-y-auto md:overflow-hidden" data-state={appState}>
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3 md:px-5">
         <h1 className="text-base font-semibold tracking-tight">Unicode Art</h1>
-        <p className="text-sm text-zinc-500">Turn an image into text made from the characters of your fonts.</p>
+        <p className="hidden text-sm text-zinc-500 lg:block">Turn an image into text made from the characters of your fonts.</p>
         <span className="ml-auto rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">Backend: {backend.label}</span>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-96 shrink-0 flex-col gap-6 overflow-y-auto border-r border-zinc-800 p-5">
+      <div className="flex flex-col md:min-h-0 md:flex-1 md:flex-row">
+        <aside className="flex w-full shrink-0 flex-col gap-6 border-zinc-800 p-4 md:w-96 md:overflow-y-auto md:border-r md:p-5">
+          <section className="space-y-2" aria-label="Output">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!result}
+                onClick={copy}
+                data-testid="copy-button"
+                className="flex-1 rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+              >
+                {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy text"}
+              </button>
+              {result && state.kind === "done" && <Timing result={result} totalMs={state.totalMs} verifyMs={verifyMs} />}
+            </div>
+            {result && s && (
+              <p
+                className="text-xs text-zinc-500"
+                data-testid="stats"
+                title={
+                  `Candidates dropped: ${s.excluded.mismatched} with mismatching browser advance, ` +
+                  `${s.excluded.tooNarrow} narrower than one sample, ${s.excluded.tooWide} too wide, ` +
+                  `${s.duplicates} identical to another glyph.`
+                }
+              >
+                {`${plural(result.rows, "line")}, ${plural(s.characters, "character")}, ${s.distinct.toLocaleString("en-US")} distinct of ` +
+                  `${s.candidates.toLocaleString("en-US")} candidates, RMS error ${s.rmsError.toFixed(3)}`}
+              </p>
+            )}
+          </section>
+
           <Section title="Image">
             <button
               type="button"
@@ -419,34 +448,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
           </Section>
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-          <div className="flex items-center gap-3">
-            <p
-              className="min-w-0 flex-1 truncate text-xs text-zinc-500"
-              data-testid="stats"
-              title={
-                s &&
-                `Candidates dropped: ${s.excluded.mismatched} with mismatching ` +
-                  `browser advance, ${s.excluded.tooNarrow} narrower than one sample, ${s.excluded.tooWide} too wide, ` +
-                  `${s.duplicates} identical to another glyph.`
-              }
-            >
-              {result && s
-                ? `${plural(result.rows, "line")}, ${plural(s.characters, "character")}, ${s.distinct.toLocaleString("en-US")} distinct of ` +
-                  `${s.candidates.toLocaleString("en-US")} candidates, RMS error ${s.rmsError.toFixed(3)}`
-                : ""}
-            </p>
-            {result && state.kind === "done" && <Timing result={result} totalMs={state.totalMs} verifyMs={verifyMs} />}
-            <button
-              type="button"
-              disabled={!result}
-              onClick={copy}
-              data-testid="copy-button"
-              className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-            >
-              {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy text"}
-            </button>
-          </div>
+        <main className="order-first flex h-[60vh] min-w-0 shrink-0 flex-col p-3 md:order-none md:h-auto md:flex-1 md:shrink md:p-4">
           <OutputBox
             result={result}
             busy={state.kind === "running"}

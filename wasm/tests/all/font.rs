@@ -93,3 +93,43 @@ fn color_glyphs_are_excluded() {
     assert_eq!(f.codepoints, vec![0x20], "only the space remains");
     assert_eq!(parse_font(&fixture("sans.ttf")).unwrap().color_glyphs, 0);
 }
+
+#[test]
+fn arabic_fonts_only_contribute_their_non_joining_characters() {
+    let f = parse_font(&fixture("arabic.ttf")).unwrap();
+    // Latin letters, digits and the space remain.
+    for cp in [0x20, 0x30, 0x39, 0x41, 0x5A] {
+        assert!(f.codepoints.contains(&cp), "U+{cp:04X} missing");
+    }
+    // Joining letters, harakat, Arabic-Indic digits, joiners and the lam-alef
+    // presentation ligature are all excluded although the font maps them.
+    for cp in [0x0627, 0x0628, 0x0644, 0x0645, 0x064E, 0x0660, 0x0662, 0x200C, 0x200D, 0xFEFB] {
+        assert!(!f.codepoints.contains(&cp), "U+{cp:04X} should be excluded");
+    }
+    assert!(f.codepoints.iter().all(|&cp| cp < 0x0590 || cp > 0x08FF));
+}
+
+#[test]
+fn shaping_features_do_not_change_coverage() {
+    let f = parse_font(&fixture("features.ttf")).unwrap();
+    // The ligature glyph is reachable through its own code point, and the
+    // letters it is formed from stay individually usable.
+    for cp in [0x66, 0x69, 0x61, 0x62, 0x63, 0x41, 0x56, 0xFB01] {
+        assert!(f.codepoints.contains(&cp), "U+{cp:04X} missing");
+    }
+    let adv = |cp: u32| f.advances[f.codepoints.iter().position(|&c| c == cp).unwrap()];
+    let plain = parse_font(&fixture("sans.ttf")).unwrap();
+    let plain_adv = |cp: u32| plain.advances[plain.codepoints.iter().position(|&c| c == cp).unwrap()];
+    // Kerning lives in GPOS and never alters the advances used for layout.
+    assert_eq!(adv(0x41), plain_adv(0x41));
+    assert_eq!(adv(0x56), plain_adv(0x56));
+}
+
+#[test]
+fn variable_fonts_are_flagged() {
+    let f = parse_font(&fixture("variable.ttf")).unwrap();
+    assert!(f.is_variable);
+    assert_eq!(f.family, "Fixture Variable");
+    assert_eq!(f.codepoints.len(), 95);
+    assert!(!parse_font(&fixture("sans.ttf")).unwrap().is_variable);
+}

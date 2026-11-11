@@ -18,7 +18,7 @@ export function ExclusionInfo({ rules }: { rules: readonly ExclusionRule[] }) {
       <div
         id="exclusions-panel"
         role="tooltip"
-        className="invisible absolute top-6 left-0 z-40 max-h-[70vh] w-[26rem] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 p-4 text-xs text-zinc-300 opacity-0 shadow-xl transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
+        className="invisible absolute top-6 left-0 z-40 max-h-[70vh] w-[26rem] max-w-[calc(100vw-3rem)] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 p-4 text-xs text-zinc-300 opacity-0 shadow-xl transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
       >
         <p className="text-zinc-200">
           Only characters that render as one standalone, left-to-right advance in monochrome are used. Excluded:

@@ -32,14 +32,14 @@ export function Timing({ result, totalMs, verifyMs }: { result: ArtResult; total
       <button
         type="button"
         aria-describedby="timing-breakdown"
-        className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 focus:outline-none"
+        className="rounded-md bg-zinc-800 px-2 py-2 text-xs whitespace-nowrap text-zinc-300 hover:bg-zinc-700 focus:outline-none"
       >
         Converted in {formatMs(totalMs)}
       </button>
       <div
         id="timing-breakdown"
         role="tooltip"
-        className="invisible absolute top-8 right-0 z-40 w-80 rounded-md border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-300 opacity-0 shadow-xl transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
+        className="invisible absolute top-10 right-0 z-40 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-300 opacity-0 shadow-xl transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
       >
         <table className="w-full">
           <tbody>
