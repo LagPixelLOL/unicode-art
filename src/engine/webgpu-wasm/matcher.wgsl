@@ -1,13 +1,17 @@
 // Glyph matcher.
 //
-// One invocation handles one start column of one row for one width bin and
-// finds the glyph slot with the minimal squared error against the target.
+// Every invocation handles PER start columns of one row for one width bin
+// and finds, for each column, the glyph slot with the minimal squared error
+// against the target. Handling several columns per invocation reuses every
+// glyph value loaded from memory PER times.
 // The constants marked "param" are replaced by the host before compiling;
 // the defaults keep this file valid WGSL on its own.
 
-const TILE: u32 = 64u; // param: start columns per workgroup
+const WG: u32 = 64u; // param: invocations per workgroup
 const CELL_H: u32 = 16u; // param: cell height in pixels
 const MAX_W: u32 = 24u; // param: widest bin in pixels
+const PER: u32 = 4u;
+const TILE: u32 = WG * PER;
 const SPAN: u32 = TILE + MAX_W - 1u;
 const INVALID: f32 = 3.0e38;
 const NO_SLOT: u32 = 0xffffffffu;
@@ -40,7 +44,23 @@ struct Bin {
 
 var<workgroup> tile: array<f32, CELL_H * SPAN>;
 
-@compute @workgroup_size(TILE)
+struct Best {
+  cost: f32,
+  slot: u32,
+}
+
+// Lanes are compared in slot order with a strict comparison, so ties keep
+// the lowest slot.
+fn pick(c: vec4<f32>, slot: u32, b: Best) -> Best {
+  var r = b;
+  if (c.x < r.cost) { r = Best(c.x, slot); }
+  if (c.y < r.cost) { r = Best(c.y, slot + 1u); }
+  if (c.z < r.cost) { r = Best(c.z, slot + 2u); }
+  if (c.w < r.cost) { r = Best(c.w, slot + 3u); }
+  return r;
+}
+
+@compute @workgroup_size(WG)
 fn main(
   @builtin(workgroup_id) wid: vec3<u32>,
   @builtin(local_invocation_id) lid: vec3<u32>,
@@ -51,7 +71,7 @@ fn main(
   let x0 = wid.x * TILE;
   let row_base = row * CELL_H * width;
 
-  for (var i = lid.x; i < CELL_H * SPAN; i += TILE) {
+  for (var i = lid.x; i < CELL_H * SPAN; i += WG) {
     let y = i / SPAN;
     let x = x0 + i % SPAN;
     var v = 0.0;
@@ -62,49 +82,68 @@ fn main(
   }
   workgroupBarrier();
 
-  let pos = x0 + lid.x;
-  if (pos >= width) {
-    return;
-  }
   let bin = bins[bin_index];
   let w = bin.width;
-  let out_index = (row * width + pos) * arrayLength(&bins) + bin_index;
+  let nbins = arrayLength(&bins);
 
-  var best = INVALID;
-  var best_s = NO_SLOT;
+  // Columns lid.x + k * WG of this tile, k = 0..3.
+  var t2 = vec4<f32>(0.0);
+  for (var y = 0u; y < CELL_H; y++) {
+    let trow = y * SPAN + lid.x;
+    for (var x = 0u; x < w; x++) {
+      let t = vec4<f32>(tile[trow + x], tile[trow + WG + x], tile[trow + 2u * WG + x], tile[trow + 3u * WG + x]);
+      t2 += t * t;
+    }
+  }
+
+  var best = array<Best, 4>(Best(INVALID, NO_SLOT), Best(INVALID, NO_SLOT), Best(INVALID, NO_SLOT), Best(INVALID, NO_SLOT));
   if (params.first == 0u) {
-    best = best_cost[out_index];
-    best_s = best_slot[out_index];
+    for (var k = 0u; k < PER; k++) {
+      let pos = x0 + lid.x + k * WG;
+      if (pos < width) {
+        let o = (row * width + pos) * nbins + bin_index;
+        best[k] = Best(best_cost[o], best_slot[o]);
+      }
+    }
   }
 
-  if (pos + w <= width) {
-    var t2 = 0.0;
+  let g_end = min(params.group_end, bin.group_count);
+  for (var g = params.group_start; g < g_end; g++) {
+    var p = bin.data_offset + g * w * CELL_H;
+    var a0 = vec4<f32>(0.0);
+    var a1 = vec4<f32>(0.0);
+    var a2 = vec4<f32>(0.0);
+    var a3 = vec4<f32>(0.0);
     for (var y = 0u; y < CELL_H; y++) {
+      let trow = y * SPAN + lid.x;
       for (var x = 0u; x < w; x++) {
-        let t = tile[y * SPAN + lid.x + x];
-        t2 += t * t;
+        let gv = unpack4x8unorm(glyphs[p]);
+        a0 = fma(gv, vec4<f32>(tile[trow + x]), a0);
+        a1 = fma(gv, vec4<f32>(tile[trow + WG + x]), a1);
+        a2 = fma(gv, vec4<f32>(tile[trow + 2u * WG + x]), a2);
+        a3 = fma(gv, vec4<f32>(tile[trow + 3u * WG + x]), a3);
+        p++;
       }
     }
-    let g_end = min(params.group_end, bin.group_count);
-    for (var g = params.group_start; g < g_end; g++) {
-      var p = bin.data_offset + g * w * CELL_H;
-      var acc = vec4<f32>(0.0);
-      for (var y = 0u; y < CELL_H; y++) {
-        let trow = y * SPAN + lid.x;
-        for (var x = 0u; x < w; x++) {
-          acc = fma(unpack4x8unorm(glyphs[p]), vec4<f32>(tile[trow + x]), acc);
-          p++;
-        }
-      }
-      let c = norms[bin.group_offset + g] - 2.0 * acc + vec4<f32>(t2);
-      let slot = (bin.group_offset + g) * 4u;
-      if (c.x < best) { best = c.x; best_s = slot; }
-      if (c.y < best) { best = c.y; best_s = slot + 1u; }
-      if (c.z < best) { best = c.z; best_s = slot + 2u; }
-      if (c.w < best) { best = c.w; best_s = slot + 3u; }
-    }
+    let n = norms[bin.group_offset + g];
+    let slot = (bin.group_offset + g) * 4u;
+    best[0] = pick(n - 2.0 * a0 + vec4<f32>(t2.x), slot, best[0]);
+    best[1] = pick(n - 2.0 * a1 + vec4<f32>(t2.y), slot, best[1]);
+    best[2] = pick(n - 2.0 * a2 + vec4<f32>(t2.z), slot, best[2]);
+    best[3] = pick(n - 2.0 * a3 + vec4<f32>(t2.w), slot, best[3]);
   }
 
-  best_cost[out_index] = best;
-  best_slot[out_index] = best_s;
+  for (var k = 0u; k < PER; k++) {
+    let pos = x0 + lid.x + k * WG;
+    if (pos < width) {
+      let o = (row * width + pos) * nbins + bin_index;
+      if (pos + w <= width) {
+        best_cost[o] = best[k].cost;
+        best_slot[o] = best[k].slot;
+      } else {
+        best_cost[o] = INVALID;
+        best_slot[o] = NO_SLOT;
+      }
+    }
+  }
 }

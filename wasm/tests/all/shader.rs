@@ -28,8 +28,8 @@ fn matcher_shader_is_valid() {
     let src = std::fs::read_to_string(path).unwrap();
     assert!(src.is_ascii());
     validate(&src);
-    for (tile, h, w) in [(64, 40, 48), (32, 8, 1), (64, 1, 90)] {
-        let s = specialize(&src, &[("TILE", tile), ("CELL_H", h), ("MAX_W", w)]);
+    for (wg, h, w) in [(64, 40, 48), (32, 8, 1), (1, 1, 90)] {
+        let s = specialize(&src, &[("WG", wg), ("CELL_H", h), ("MAX_W", w)]);
         assert!(s.contains(&format!("const CELL_H: u32 = {h}u;")));
         validate(&s);
     }

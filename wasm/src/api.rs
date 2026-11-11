@@ -50,6 +50,11 @@ impl FontInfo {
     pub fn advances(&self) -> Vec<u16> {
         self.0.advances.clone()
     }
+    /// Bytes to hand to the browser when they differ from the input
+    /// (collections are reduced to their first face); empty otherwise.
+    pub fn standalone(&self) -> Vec<u8> {
+        self.0.standalone.clone().unwrap_or_default()
+    }
 }
 
 #[wasm_bindgen(js_name = parseFont)]

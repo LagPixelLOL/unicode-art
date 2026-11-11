@@ -56,6 +56,48 @@ pub fn detect_format(data: &[u8]) -> Option<FontFormat> {
     }
 }
 
+fn be16(d: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(d.get(at..at + 2)?.try_into().ok()?))
+}
+
+fn be32(d: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(d.get(at..at + 4)?.try_into().ok()?))
+}
+
+/// Rebuilds the first face of a TrueType/OpenType collection as a
+/// standalone font, since browsers do not accept collections as web fonts.
+pub fn extract_first_face(data: &[u8]) -> Result<Vec<u8>, FontError> {
+    let bad = || FontError::Parse("malformed font collection".into());
+    if data.get(0..4) != Some(b"ttcf") {
+        return Err(bad());
+    }
+    let count = be32(data, 8).ok_or_else(bad)?;
+    if count == 0 {
+        return Err(bad());
+    }
+    let dir = be32(data, 12).ok_or_else(bad)? as usize;
+    let num_tables = be16(data, dir + 4).ok_or_else(bad)? as usize;
+    let header_len = 12 + 16 * num_tables;
+    let header = data.get(dir..dir + header_len).ok_or_else(bad)?;
+    let mut out = header.to_vec();
+    for i in 0..num_tables {
+        let rec = 12 + 16 * i;
+        let offset = be32(header, rec + 8).ok_or_else(bad)? as usize;
+        let length = be32(header, rec + 12).ok_or_else(bad)? as usize;
+        let table = data.get(offset..offset.checked_add(length).ok_or_else(bad)?).ok_or_else(bad)?;
+        while out.len() % 4 != 0 {
+            out.push(0);
+        }
+        let new_offset = out.len() as u32;
+        out[rec + 8..rec + 12].copy_from_slice(&new_offset.to_be_bytes());
+        out.extend_from_slice(table);
+    }
+    while out.len() % 4 != 0 {
+        out.push(0);
+    }
+    Ok(out)
+}
+
 /// Information about the first face of a font file.
 #[derive(Debug, Clone)]
 pub struct ParsedFont {
@@ -73,6 +115,8 @@ pub struct ParsedFont {
     pub codepoints: Vec<u32>,
     /// Horizontal advance in font units for each entry of `codepoints`.
     pub advances: Vec<u16>,
+    /// For collections: the first face as a standalone font for the browser.
+    pub standalone: Option<Vec<u8>>,
 }
 
 fn family_name(face: &Face<'_>) -> String {
@@ -157,5 +201,6 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
         color_glyphs,
         codepoints,
         advances,
+        standalone: if format == FontFormat::Collection { Some(extract_first_face(data)?) } else { None },
     })
 }

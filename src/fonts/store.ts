@@ -28,6 +28,27 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   return out;
 }
 
+/**
+ * Space characters that browsers (through HarfBuzz) synthesize from the
+ * space glyph when a font lacks them, so any font with a space covers them.
+ */
+export const SYNTHESIZED_SPACES: readonly number[] = [
+  0x00a0, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x202f, 0x205f,
+  0x3000,
+];
+
+function hasCodepoint(sorted: ArrayLike<number>, cp: number): boolean {
+  let lo = 0;
+  let hi = sorted.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] === cp) return true;
+    if (sorted[mid] < cp) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return false;
+}
+
 export interface FaceCoverage {
   info: Pick<FontInfoData, "codepoints" | "advances" | "unitsPerEm">;
   ranges: CodeRange[] | null;
@@ -36,7 +57,8 @@ export interface FaceCoverage {
 /**
  * Coverage of a family made of several faces. Like CSS, faces added later
  * are checked first, and a face only serves code points inside its
- * unicode-range that its cmap actually maps.
+ * unicode-range that its cmap actually maps. Synthesized spaces get a NaN
+ * advance: only the browser knows their width.
  */
 export function combineFaces(faces: readonly FaceCoverage[]): { codepoints: Uint32Array; advanceEm: Float32Array } {
   const map = new Map<number, number>();
@@ -47,9 +69,24 @@ export function combineFaces(faces: readonly FaceCoverage[]): { codepoints: Uint
       if (!map.has(cp) && inRanges(ranges, cp)) map.set(cp, info.advances[i] / info.unitsPerEm);
     }
   }
+  for (const cp of SYNTHESIZED_SPACES) {
+    if (map.has(cp)) continue;
+    for (let f = faces.length - 1; f >= 0; f--) {
+      if (inRanges(faces[f].ranges, cp) && hasCodepoint(faces[f].info.codepoints, 0x20)) {
+        map.set(cp, Number.NaN);
+        break;
+      }
+    }
+  }
   const codepoints = Uint32Array.from(map.keys()).sort();
   const advanceEm = Float32Array.from(codepoints, (cp) => map.get(cp)!);
   return { codepoints, advanceEm };
+}
+
+/** The font's own family name for files, when it can be shown as ASCII. */
+export function displayName(source: Pick<FontSource, "name" | "preferFamilyName">, family: string): string {
+  const f = family.trim();
+  return source.preferFamilyName && f && /^[\x20-\x7e]+$/.test(f) ? f : source.name;
 }
 
 export interface AddResult {
@@ -102,7 +139,8 @@ export class FontStore {
           continue;
         }
       }
-      const face = new FontFace(family, src.bytes.slice().buffer, src.unicodeRange ? { unicodeRange: src.unicodeRange } : {});
+      const bytes = info.standalone ?? src.bytes;
+      const face = new FontFace(family, bytes.slice().buffer, src.unicodeRange ? { unicodeRange: src.unicodeRange } : {});
       try {
         await face.load();
       } catch {
@@ -118,7 +156,7 @@ export class FontStore {
     const font: LoadedFont = {
       id,
       family,
-      name: (source.preferFamilyName && faces[0].info.family.trim()) || source.name,
+      name: displayName(source, faces[0].info.family),
       faces,
       coverage: codepoints,
       advanceEm,

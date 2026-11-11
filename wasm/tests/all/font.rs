@@ -46,6 +46,28 @@ fn collections_use_the_first_face() {
     assert_eq!(f.family, "Fixture Mono");
     assert_eq!(f.codepoints, mono.codepoints);
     assert!(mono.advances.iter().all(|&a| a == mono.advances[0]), "monospace");
+    // The extracted face parses to the same font and is self contained.
+    let standalone = f.standalone.expect("collections are extracted");
+    assert_eq!(&standalone[0..4], &[0, 1, 0, 0]);
+    let again = parse_font(&standalone).unwrap();
+    assert_eq!(again.format, FontFormat::TrueType);
+    assert_eq!((again.codepoints, again.advances), (mono.codepoints, mono.advances));
+    assert!(again.standalone.is_none());
+    assert!(parse_font(&fixture("sans.ttf")).unwrap().standalone.is_none());
+}
+
+#[test]
+fn malformed_collections_are_rejected() {
+    use unicode_art_core::font::extract_first_face;
+    let ttc = fixture("collection.ttc");
+    assert!(extract_first_face(&ttc[..20]).is_err());
+    assert!(extract_first_face(b"ttcf\0\x02\0\0\0\0\0\0").is_err(), "no fonts");
+    assert!(extract_first_face(&fixture("sans.ttf")).is_err(), "not a collection");
+    let mut broken = ttc.clone();
+    // Point the first table far beyond the end of the file.
+    let dir = u32::from_be_bytes(broken[12..16].try_into().unwrap()) as usize;
+    broken[dir + 12 + 8..dir + 12 + 12].copy_from_slice(&u32::MAX.to_be_bytes());
+    assert!(extract_first_face(&broken).is_err());
 }
 
 #[test]

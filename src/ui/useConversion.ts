@@ -10,7 +10,7 @@ import { errorText } from "./notices";
 export type ConversionState =
   | { kind: "idle"; reason: string }
   | { kind: "running"; stage: Stage; progress: number }
-  | { kind: "done"; seconds: number }
+  | { kind: "done"; totalMs: number }
   | { kind: "error"; message: string };
 
 const DEBOUNCE_MS = 200;
@@ -27,6 +27,7 @@ export function useConversion(
   const [state, setState] = useState<ConversionState>({ kind: "idle", reason: "" });
   const [result, setResult] = useState<ArtResult | null>(null);
   const [canvasCheck, setCanvasCheck] = useState<CanvasCheck | null>(null);
+  const [verifyMs, setVerifyMs] = useState<number | null>(null);
   const optionsKey = typeof options === "string" ? options : JSON.stringify(options);
 
   useEffect(() => () => generator.current?.dispose(), []);
@@ -59,9 +60,14 @@ export function useConversion(
         if (ctrl.signal.aborted) return;
         setResult(r);
         setCanvasCheck(null);
-        setState({ kind: "done", seconds: (performance.now() - started) / 1000 });
+        setVerifyMs(null);
+        setState({ kind: "done", totalMs: performance.now() - started });
+        const verifyStart = performance.now();
         const check = await verifyCanvas(r, backend);
-        if (!ctrl.signal.aborted) setCanvasCheck(check);
+        if (!ctrl.signal.aborted) {
+          setCanvasCheck(check);
+          setVerifyMs(performance.now() - verifyStart);
+        }
       } catch (e) {
         if (isAbort(e) || ctrl.signal.aborted) return;
         console.error(e);
@@ -75,5 +81,5 @@ export function useConversion(
     // optionsKey stands in for options.
   }, [backend, fonts, image, optionsKey, waitingForFonts]);
 
-  return { state, result, canvasCheck };
+  return { state, result, canvasCheck, verifyMs };
 }

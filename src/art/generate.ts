@@ -43,6 +43,8 @@ export interface ArtResult {
     rmsError: number;
     excluded: { mismatched: number; tooNarrow: number; tooWide: number };
     ms: { charset: number; glyphs: number; target: number; match: number };
+    /** Steps skipped because their result was reused from the previous run. */
+    cached: { charset: boolean; glyphs: boolean };
   };
 }
 
@@ -81,11 +83,13 @@ export class ArtGenerator {
   ): Promise<ArtResult> {
     if (fonts.length === 0) throw new Error("Add at least one font.");
     const ms = { charset: 0, glyphs: 0, target: 0, match: 0 };
+    const cached = { charset: true, glyphs: true };
 
     let t = performance.now();
     const key = charsetKey(fonts);
     if (this.charset?.key !== key) {
       progress("charset", 0);
+      cached.charset = false;
       this.charset = null;
       this.charset = await buildCharset(this.backend, fonts, signal, (f) => progress("charset", f));
     }
@@ -106,6 +110,7 @@ export class ArtGenerator {
     if (this.bank?.key !== bankKey) {
       this.bank?.handle.dispose();
       this.bank = null;
+      cached.glyphs = false;
       this.bank = await this.buildBank(bankKey, charset, geometry, signal, (f) => progress("glyphs", f));
     }
     const bank = this.bank;
@@ -174,6 +179,7 @@ export class ArtGenerator {
           tooWide: bank.selection.tooWide,
         },
         ms,
+        cached,
       },
     };
   }

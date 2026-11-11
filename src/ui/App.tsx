@@ -10,6 +10,7 @@ import { FontList, isInternalDrag } from "./FontList";
 import { errorText, useNotify } from "./notices";
 import { DETAIL_RANGE, WIDTH_RANGE, readOptions } from "./options";
 import { OutputBox } from "./OutputBox";
+import { Timing } from "./Timing";
 import { asciiOnly, plural } from "./text";
 import { useConversion } from "./useConversion";
 import { useFontLoader } from "./useFontLoader";
@@ -74,7 +75,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const fontInput = useRef<HTMLInputElement>(null);
 
   const options = readOptions(widthText, detailText, invert);
-  const { state, result, canvasCheck } = useConversion(
+  const { state, result, canvasCheck, verifyMs } = useConversion(
     backend,
     fonts,
     image,
@@ -199,7 +200,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   else if (state.kind === "error") status = { text: state.message, tone: "text-red-400", progress: 0 };
   else if (state.kind === "done")
     status = {
-      text: `Done in ${state.seconds.toFixed(2)} s. ${verified === null ? "Verifying..." : verified ? "Verified." : "Verification found differences."}`,
+      text: `Done in ${(state.totalMs / 1000).toFixed(2)} s. ${verified === null ? "Verifying..." : verified ? "Verified." : "Verification found differences."}`,
       tone: verified === false ? "text-amber-400" : "text-emerald-400",
       progress: 1,
     };
@@ -425,8 +426,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
               data-testid="stats"
               title={
                 s &&
-                `Charset ${s.ms.charset.toFixed(0)} ms, glyphs ${s.ms.glyphs.toFixed(0)} ms, image ${s.ms.target.toFixed(0)} ms, ` +
-                  `GPU match and layout ${s.ms.match.toFixed(0)} ms. Dropped: ${s.excluded.mismatched} with mismatching ` +
+                `Candidates dropped: ${s.excluded.mismatched} with mismatching ` +
                   `browser advance, ${s.excluded.tooNarrow} narrower than one sample, ${s.excluded.tooWide} too wide, ` +
                   `${s.duplicates} identical to another glyph.`
               }
@@ -436,6 +436,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
                   `${s.candidates.toLocaleString("en-US")} candidates, RMS error ${s.rmsError.toFixed(3)}`
                 : ""}
             </p>
+            {result && state.kind === "done" && <Timing result={result} totalMs={state.totalMs} verifyMs={verifyMs} />}
             <button
               type="button"
               disabled={!result}

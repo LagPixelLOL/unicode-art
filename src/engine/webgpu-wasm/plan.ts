@@ -1,7 +1,7 @@
 // Pure planning helpers for the WebGPU matcher (no GPU access, unit tested).
 
 export interface ShaderParams {
-  TILE: number;
+  WG: number;
   CELL_H: number;
   MAX_W: number;
 }
@@ -27,20 +27,41 @@ export interface DeviceLimits {
   maxBufferSize: number;
 }
 
-export const TILE_SIZES = [64, 32, 16, 8, 4, 2, 1] as const;
+/** Start columns handled by one invocation (PER in the shader). */
+export const COLUMNS_PER_INVOCATION = 4;
+export const WORKGROUP_SIZES = [64, 32, 16, 8, 4, 2, 1] as const;
 
-export function workgroupBytes(tile: number, cellH: number, maxW: number): number {
-  return (tile + maxW - 1) * cellH * 4;
+/** Shared memory used by a workgroup of `wg` invocations. */
+export function workgroupBytes(wg: number, cellH: number, maxW: number): number {
+  return (wg * COLUMNS_PER_INVOCATION + maxW - 1) * cellH * 4;
 }
 
-/** Largest workgroup tile whose shared target slice fits the device. */
-export function chooseTile(cellH: number, maxW: number, limits: DeviceLimits): number | null {
-  for (const tile of TILE_SIZES) {
-    if (tile > limits.maxComputeInvocationsPerWorkgroup || tile > limits.maxComputeWorkgroupSizeX) continue;
-    if (workgroupBytes(tile, cellH, maxW) <= limits.maxComputeWorkgroupStorageSize) return tile;
-  }
-  return null;
+export interface WorkgroupChoice {
+  /** Invocations per workgroup. */
+  size: number;
+  /** Start columns per workgroup. */
+  tile: number;
 }
+
+/**
+ * Largest workgroup whose shared target slice fits the device, but not so
+ * large that one workgroup spans more columns than the row has (which
+ * would leave most invocations idle), unless nothing smaller fits.
+ */
+export function chooseWorkgroup(cellH: number, maxW: number, limits: DeviceLimits, width = Infinity): WorkgroupChoice | null {
+  const fitting = WORKGROUP_SIZES.filter(
+    (size) =>
+      size <= limits.maxComputeInvocationsPerWorkgroup &&
+      size <= limits.maxComputeWorkgroupSizeX &&
+      workgroupBytes(size, cellH, maxW) <= limits.maxComputeWorkgroupStorageSize,
+  );
+  if (fitting.length === 0) return null;
+  const size = fitting.find((s) => s * COLUMNS_PER_INVOCATION <= width || s <= MIN_PREFERRED_WORKGROUP) ?? fitting[0];
+  return { size, tile: size * COLUMNS_PER_INVOCATION };
+}
+
+/** Smaller workgroups than this waste SIMD lanes on most GPUs. */
+export const MIN_PREFERRED_WORKGROUP = 32;
 
 export interface Batch {
   rowStart: number;

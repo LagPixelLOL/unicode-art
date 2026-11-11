@@ -108,7 +108,7 @@ export function FontList({ fonts, provided, used, onMove, onRemove }: Props) {
               <div className="truncate text-sm text-zinc-200" title={asciiOnly(f.name)}>
                 {i + 1}. {asciiOnly(f.name)}
               </div>
-              <div className="truncate text-xs text-zinc-500">
+              <div className="text-xs break-words text-zinc-500">
                 {f.formats.join("/").toUpperCase()}
                 {f.faces.length > 1 ? `, ${f.faces.length} files` : ""}
                 {f.isVariable ? ", variable" : ""}, {plural(f.coverage.length, "char")}

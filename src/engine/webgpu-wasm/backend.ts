@@ -78,6 +78,7 @@ export class WebGpuWasmBackend implements ComputeBackend {
         colorGlyphs: info.colorGlyphs,
         codepoints: info.codepoints(),
         advances: info.advances(),
+        standalone: info.format === "ttc" ? info.standalone() : null,
       };
     } finally {
       info.free();
@@ -157,8 +158,12 @@ export class WebGpuWasmBackend implements ComputeBackend {
     const bank = req.bank.gpu;
     const { cellH, binCount, slotGlyph } = bank.packed;
     const parts: LayoutResult[] = [];
+    const ms = { score: 0, solve: 0 };
+    let t = performance.now();
     for await (const batch of this.matcher.score(bank, req.target, req.rows, req.width, req.signal, req.onProgress)) {
       throwIfAborted(req.signal);
+      const solveStart = performance.now();
+      ms.score += solveStart - t;
       const slice = req.target.subarray(
         batch.rowStart * cellH * req.width,
         (batch.rowStart + batch.rowCount) * cellH * req.width,
@@ -181,12 +186,15 @@ export class WebGpuWasmBackend implements ComputeBackend {
           rowOffsets: layout.rowOffsets(),
           rowWidths: layout.rowWidths(),
           totalCost: layout.totalCost,
+          ms: { score: 0, solve: 0 },
         });
       } finally {
         layout.free();
       }
+      t = performance.now();
+      ms.solve += t - solveStart;
     }
-    return concatLayouts(parts);
+    return { ...concatLayouts(parts), ms };
   }
 
   async compareImages(
@@ -220,6 +228,7 @@ export function concatLayouts(parts: LayoutResult[]): LayoutResult {
     rowOffsets: new Uint32Array(rows + 1),
     rowWidths: new Float32Array(rows),
     totalCost: 0,
+    ms: { score: 0, solve: 0 },
   };
   let g = 0;
   let r = 0;
@@ -231,6 +240,8 @@ export function concatLayouts(parts: LayoutResult[]): LayoutResult {
     g += p.glyphs.length;
     r += p.rowWidths.length;
     out.totalCost += p.totalCost;
+    out.ms.score += p.ms.score;
+    out.ms.solve += p.ms.solve;
   }
   return out;
 }

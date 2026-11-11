@@ -4,7 +4,7 @@ import { throwIfAborted } from "../backend";
 import shaderSource from "./matcher.wgsl?raw";
 import {
   type DeviceLimits,
-  chooseTile,
+  chooseWorkgroup,
   planBatches,
   planDispatches,
   specializeShader,
@@ -66,12 +66,12 @@ export class Matcher {
     this.limits = device.limits;
   }
 
-  private pipeline(tile: number, cellH: number, maxW: number): Promise<GPUComputePipeline> {
-    const key = `${tile}/${cellH}/${maxW}`;
+  private pipeline(wg: number, cellH: number, maxW: number): Promise<GPUComputePipeline> {
+    const key = `${wg}/${cellH}/${maxW}`;
     let p = this.pipelines.get(key);
     if (!p) {
       p = (async () => {
-        const code = specializeShader(shaderSource, { TILE: tile, CELL_H: cellH, MAX_W: maxW });
+        const code = specializeShader(shaderSource, { WG: wg, CELL_H: cellH, MAX_W: maxW });
         this.device.pushErrorScope("validation");
         const module = this.device.createShaderModule({ label: "matcher", code });
         const pipeline = await this.device.createComputePipelineAsync({
@@ -104,9 +104,9 @@ export class Matcher {
     const { device } = this;
     const { cellH, maxWidth, binCount, maxGroupCount } = bank.packed;
     if (target.length !== rows * cellH * width) throw new Error("Target size does not match the grid");
-    const tile = chooseTile(cellH, maxWidth, this.limits);
-    if (tile === null) throw new Error("Glyph cells are too large for this GPU; lower the detail.");
-    const pipeline = await this.pipeline(tile, cellH, maxWidth);
+    const wg = chooseWorkgroup(cellH, maxWidth, this.limits, width);
+    if (wg === null) throw new Error("Glyph cells are too large for this GPU's shared memory; lower the detail.");
+    const pipeline = await this.pipeline(wg.size, cellH, maxWidth);
     const batches = planBatches(rows, width, cellH, binCount, this.limits);
     const plans = batches.map((b) => planDispatches(b.rowCount, width, cellH, maxWidth, binCount, maxGroupCount));
     const totalWork = plans.flat().reduce((s, d) => s + d.work, 0) || 1;
@@ -161,7 +161,7 @@ export class Matcher {
           const pass = enc.beginComputePass();
           pass.setPipeline(pipeline);
           pass.setBindGroup(0, bindGroup);
-          pass.dispatchWorkgroups(Math.ceil(width / tile), d.rowCount, binCount);
+          pass.dispatchWorkgroups(Math.ceil(width / wg.tile), d.rowCount, binCount);
           pass.end();
           device.queue.submit([enc.finish()]);
           await device.queue.onSubmittedWorkDone();

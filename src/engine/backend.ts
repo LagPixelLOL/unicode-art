@@ -20,6 +20,8 @@ export interface FontInfoData {
   codepoints: Uint32Array;
   /** Advance in font units per entry of `codepoints`. */
   advances: Uint16Array;
+  /** Bytes to register with the browser instead of the input (collections). */
+  standalone: Uint8Array | null;
 }
 
 export interface MergedCharset {
@@ -89,6 +91,8 @@ export interface LayoutResult {
   rowOffsets: Uint32Array;
   rowWidths: Float32Array;
   totalCost: number;
+  /** Time spent scoring candidates and solving rows, in milliseconds. */
+  ms: { score: number; solve: number };
 }
 
 export interface ImageComparison {

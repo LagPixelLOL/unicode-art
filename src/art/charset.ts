@@ -61,7 +61,8 @@ export function fontAdvance(font: Pick<FontRef, "coverage" | "advanceEm">, cp: n
  */
 export function advanceAgrees(browserEm: number, fontEm: number, isVariable: boolean): boolean {
   if (!(browserEm > 0)) return false;
-  if (isVariable) return true;
+  // Synthesized by the browser; there is nothing to compare against.
+  if (isVariable || Number.isNaN(fontEm)) return true;
   return Math.abs(browserEm - fontEm) <= Math.max(0.002, fontEm * 0.01);
 }
 
