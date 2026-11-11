@@ -29,6 +29,9 @@ pub struct GlyphBank {
     pub norms: Vec<f32>,
     /// Glyph id per slot, `PAD_GLYPH` for padding.
     pub slot_glyph: Vec<u32>,
+    /// Glyphs dropped because an earlier glyph of the same width has
+    /// identical pixels (they would always score the same).
+    pub duplicates: u32,
 }
 
 impl GlyphBank {
@@ -92,6 +95,10 @@ impl GlyphBankBuilder {
         }
     }
 
+    pub fn cell_h(&self) -> u32 {
+        self.cell_h
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -102,7 +109,17 @@ impl GlyphBankBuilder {
 
     pub fn build(mut self) -> GlyphBank {
         self.entries.sort_by_key(|e| (e.width, e.glyph));
-        let mut bank = GlyphBank { cell_h: self.cell_h, ..Default::default() };
+        let before = self.entries.len();
+        let mut seen = std::collections::HashSet::new();
+        let keep: Vec<bool> = self.entries.iter().map(|e| seen.insert((e.width, e.pixels.as_slice()))).collect();
+        drop(seen);
+        let mut flags = keep.into_iter();
+        self.entries.retain(|_| flags.next().unwrap_or(false));
+        let mut bank = GlyphBank {
+            cell_h: self.cell_h,
+            duplicates: (before - self.entries.len()) as u32,
+            ..Default::default()
+        };
         let mut i = 0;
         while i < self.entries.len() {
             let width = self.entries[i].width;

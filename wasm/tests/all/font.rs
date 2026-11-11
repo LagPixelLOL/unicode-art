@@ -63,3 +63,11 @@ fn rejects_garbage() {
         assert!(!f.as_str().is_empty());
     }
 }
+
+#[test]
+fn color_glyphs_are_excluded() {
+    let f = parse_font(&fixture("color.ttf")).unwrap();
+    assert_eq!(f.color_glyphs, 2, "the emoji and the heart are bitmaps");
+    assert_eq!(f.codepoints, vec![0x20], "only the space remains");
+    assert_eq!(parse_font(&fixture("sans.ttf")).unwrap().color_glyphs, 0);
+}

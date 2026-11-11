@@ -1,6 +1,7 @@
 """Regenerates the font fixtures in tests/fixtures/fonts.
 
-The fixtures are renamed subsets of the Liberation fonts (SIL OFL 1.1).
+The fixtures are renamed subsets of the Liberation fonts and of Noto Color
+Emoji (all SIL OFL 1.1).
 
 Requires: pip install fonttools brotli
 Usage:    python3 scripts/make-fixtures.py [path/to/liberation/fonts]
@@ -29,13 +30,13 @@ def rename(font, family):
             rec.string = family
 
 
-def make(src_name, out_name, family, flavor=None, unicodes=UNICODES):
+def make(src_name, out_name, family, flavor=None, unicodes=UNICODES, src_dir=None):
     opts = subset.Options()
     opts.flavor = flavor
     opts.layout_features = []
     opts.name_IDs = [1, 2, 16]
     opts.notdef_outline = True
-    font = subset.load_font(os.path.join(SRC, src_name), opts)
+    font = subset.load_font(os.path.join(src_dir or SRC, src_name), opts)
     sub = subset.Subsetter(opts)
     sub.populate(unicodes=subset.parse_unicodes(unicodes))
     sub.subset(font)
@@ -49,6 +50,9 @@ def main():
     make("LiberationSans-Regular.ttf", "sans.woff", "Fixture Sans", flavor="woff")
     make("LiberationSans-Regular.ttf", "sans.woff2", "Fixture Sans", flavor="woff2")
     make("LiberationMono-Regular.ttf", "mono.ttf", "Fixture Mono", unicodes="U+0020-007E")
+    # Bitmap color glyphs (CBDT) that must be excluded from the output.
+    make("NotoColorEmoji.ttf", "color.ttf", "Fixture Color", unicodes="U+0020,U+1F600,U+2764",
+         src_dir="/usr/share/fonts/truetype/noto")
     coll = TTCollection()
     coll.fonts = [TTFont(os.path.join(OUT, "mono.ttf")), TTFont(os.path.join(OUT, "sans.ttf"))]
     coll.save(os.path.join(OUT, "collection.ttc"))

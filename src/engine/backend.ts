@@ -14,6 +14,8 @@ export interface FontInfoData {
   lineGap: number;
   glyphCount: number;
   isVariable: boolean;
+  /** Glyphs skipped because they are drawn in color. */
+  colorGlyphs: number;
   /** Sorted usable code points that map to a real glyph. */
   codepoints: Uint32Array;
   /** Advance in font units per entry of `codepoints`. */
@@ -57,6 +59,8 @@ export interface GlyphBankHandle {
   readonly binCount: number;
   readonly maxWidth: number;
   readonly glyphCount: number;
+  /** Glyphs dropped because they look exactly like another candidate. */
+  readonly duplicates: number;
   dispose(): void;
 }
 

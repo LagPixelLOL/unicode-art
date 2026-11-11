@@ -15,6 +15,8 @@ export interface ArtOptions {
 export interface SourceImage {
   id: number;
   name: string;
+  /** Whether the image was scaled down on decoding. */
+  limited: boolean;
   width: number;
   height: number;
   rgba: Uint8ClampedArray;
@@ -24,6 +26,8 @@ export interface ArtResult {
   lines: string[];
   text: string;
   families: string[];
+  /** Characters each font provides after priority, per family. */
+  provided: number[];
   geometry: Geometry;
   rows: number;
   layout: LayoutResult;
@@ -33,6 +37,7 @@ export interface ArtResult {
   glyphAdvancePx: Float32Array;
   stats: {
     candidates: number;
+    duplicates: number;
     distinct: number;
     characters: number;
     rmsError: number;
@@ -82,7 +87,7 @@ export class ArtGenerator {
     if (this.charset?.key !== key) {
       progress("charset", 0);
       this.charset = null;
-      this.charset = await buildCharset(this.backend, fonts);
+      this.charset = await buildCharset(this.backend, fonts, signal, (f) => progress("charset", f));
     }
     const charset = this.charset;
     if (charset.codepoints.length === 0) throw new Error("The loaded fonts have no usable characters.");
@@ -150,6 +155,7 @@ export class ArtGenerator {
       lines,
       text: lines.join("\n"),
       families: charset.families,
+      provided: charset.perFont,
       geometry,
       rows,
       layout,
@@ -158,6 +164,7 @@ export class ArtGenerator {
       glyphAdvancePx: bank.selection.advancePx,
       stats: {
         candidates: bank.handle.glyphCount,
+        duplicates: bank.handle.duplicates,
         distinct: used.size,
         characters: layout.glyphs.length,
         rmsError: Math.sqrt(layout.totalCost / Math.max(1, geometry.widthPx * rows * geometry.cellH)),

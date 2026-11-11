@@ -65,6 +65,22 @@ fn packs_bins_by_width_with_padding() {
     }
     // Padding lanes are empty.
     assert_eq!(bank.coverage(5, 0, 0), 0);
+    assert_eq!(bank.duplicates, 0);
+}
+
+#[test]
+fn identical_glyphs_of_equal_width_are_deduplicated() {
+    // Glyphs 0, 2 and 3 look the same; 3 is wider so it is kept.
+    let cells = [(2, 2), (0, 2), (1, 2), (3, 3)];
+    let (rgba, page_w, xs) = page(&cells, 1, |g, _, _| if g == 1 { 9 } else { 200 });
+    let mut b = GlyphBankBuilder::new(1);
+    let glyphs: Vec<u32> = cells.iter().map(|c| c.0).collect();
+    let widths: Vec<u32> = cells.iter().map(|c| c.1).collect();
+    b.add_page(&rgba, page_w, &xs, &[0; 4], &glyphs, &widths);
+    let bank = b.build();
+    assert_eq!(bank.duplicates, 1);
+    let real: Vec<u32> = bank.slot_glyph.iter().copied().filter(|&g| g != PAD_GLYPH).collect();
+    assert_eq!(real, vec![0, 1, 3], "the lowest glyph id of a duplicate set survives");
 }
 
 #[test]

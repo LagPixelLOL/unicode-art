@@ -67,6 +67,8 @@ pub struct ParsedFont {
     pub line_gap: i16,
     pub glyph_count: u16,
     pub is_variable: bool,
+    /// Glyphs skipped because they are drawn in color (COLR, CBDT, sbix, SVG).
+    pub color_glyphs: u32,
     /// Sorted usable code points that map to a real (non .notdef) glyph.
     pub codepoints: Vec<u32>,
     /// Horizontal advance in font units for each entry of `codepoints`.
@@ -113,6 +115,12 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
     all.sort_unstable();
     all.dedup();
 
+    let tables = face.tables();
+    let has_color = tables.colr.is_some() || tables.sbix.is_some() || tables.cbdt.is_some() || tables.svg.is_some();
+    let is_color = |gid: GlyphId| {
+        face.is_color_glyph(gid) || face.glyph_raster_image(gid, u16::MAX).is_some() || face.glyph_svg_image(gid).is_some()
+    };
+    let mut color_glyphs = 0;
     let mut codepoints = Vec::with_capacity(all.len());
     let mut advances = Vec::with_capacity(all.len());
     for cp in all {
@@ -128,6 +136,11 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
         if adv == 0 {
             continue;
         }
+        // The output is monochrome text; color glyphs would not render as such.
+        if has_color && is_color(gid) {
+            color_glyphs += 1;
+            continue;
+        }
         codepoints.push(cp);
         advances.push(adv);
     }
@@ -141,6 +154,7 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
         line_gap: face.line_gap(),
         glyph_count: face.number_of_glyphs(),
         is_variable: face.is_variable(),
+        color_glyphs,
         codepoints,
         advances,
     })

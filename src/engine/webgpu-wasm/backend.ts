@@ -36,6 +36,9 @@ class BankHandle implements GlyphBankHandle {
   get maxWidth() {
     return this.gpu.packed.maxWidth;
   }
+  get duplicates() {
+    return this.gpu.packed.duplicates;
+  }
   get glyphCount() {
     let n = 0;
     for (const g of this.gpu.packed.slotGlyph) if (g !== 0xffffffff) n++;
@@ -72,6 +75,7 @@ export class WebGpuWasmBackend implements ComputeBackend {
         lineGap: info.lineGap,
         glyphCount: info.glyphCount,
         isVariable: info.isVariable,
+        colorGlyphs: info.colorGlyphs,
         codepoints: info.codepoints(),
         advances: info.advances(),
       };
@@ -134,6 +138,7 @@ export class WebGpuWasmBackend implements ComputeBackend {
             data: bank.data(),
             norms: bank.norms(),
             slotGlyph: bank.slotGlyph(),
+            duplicates: bank.duplicates,
           });
           return new BankHandle(gpu);
         } finally {

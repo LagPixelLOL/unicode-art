@@ -40,6 +40,10 @@ impl FontInfo {
     pub fn is_variable(&self) -> bool {
         self.0.is_variable
     }
+    #[wasm_bindgen(getter, js_name = colorGlyphs)]
+    pub fn color_glyphs(&self) -> u32 {
+        self.0.color_glyphs
+    }
     pub fn codepoints(&self) -> Vec<u32> {
         self.0.codepoints.clone()
     }
@@ -142,6 +146,14 @@ impl GlyphBankBuilder {
         if page_w == 0 || rgba.len() % (page_w as usize * 4) != 0 {
             return Err(JsError::new("page buffer does not match page width"));
         }
+        let page_h = (rgba.len() / (page_w as usize * 4)) as u64;
+        let cell_h = self.0.cell_h() as u64;
+        for i in 0..xs.len() {
+            let (x, y, w) = (xs[i] as u64, ys[i] as u64, widths[i] as u64);
+            if w == 0 || x + w > page_w as u64 || y + cell_h > page_h {
+                return Err(JsError::new("glyph cell lies outside of the page"));
+            }
+        }
         self.0.add_page(rgba, page_w, xs, ys, glyphs, widths);
         Ok(())
     }
@@ -167,6 +179,10 @@ impl GlyphBank {
     #[wasm_bindgen(getter, js_name = maxGroupCount)]
     pub fn max_group_count(&self) -> u32 {
         self.0.max_group_count()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn duplicates(&self) -> u32 {
+        self.0.duplicates
     }
     #[wasm_bindgen(getter, js_name = binCount)]
     pub fn bin_count(&self) -> u32 {

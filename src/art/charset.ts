@@ -1,13 +1,21 @@
 // Builds the candidate character set from the loaded fonts.
 
-import type { ComputeBackend, FontInfoData } from "../engine/backend";
+import type { ComputeBackend } from "../engine/backend";
 import { cssFont, textContext } from "./atlas";
 import { DEFAULT_CH_EM } from "./geometry";
 
 export interface FontRef {
   id: number;
+  /** CSS family name the font is registered under. */
   family: string;
-  info: FontInfoData;
+  /** Sorted usable code points the font renders. */
+  coverage: Uint32Array;
+  /** Advance in em from the font's own metrics, per coverage entry. */
+  advanceEm: Float32Array;
+  isVariable: boolean;
+  /** Line metrics of the face that renders the space, in em. */
+  ascentEm: number;
+  descentEm: number;
 }
 
 export interface CharsetData {
@@ -33,13 +41,13 @@ export function charsetKey(fonts: readonly FontRef[]): string {
 }
 
 /** Binary search of a code point in a font's sorted coverage. */
-export function fontAdvance(info: FontInfoData, cp: number): number | null {
+export function fontAdvance(font: Pick<FontRef, "coverage" | "advanceEm">, cp: number): number | null {
   let lo = 0;
-  let hi = info.codepoints.length - 1;
+  let hi = font.coverage.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const v = info.codepoints[mid];
-    if (v === cp) return info.advances[mid] / info.unitsPerEm;
+    const v = font.coverage[mid];
+    if (v === cp) return font.advanceEm[mid];
     if (v < cp) lo = mid + 1;
     else hi = mid - 1;
   }
@@ -59,8 +67,13 @@ export function advanceAgrees(browserEm: number, fontEm: number, isVariable: boo
 
 const MEASURE_PX = 1000;
 
-export async function buildCharset(backend: ComputeBackend, fonts: readonly FontRef[]): Promise<CharsetData> {
-  const merged = await backend.mergeCoverage(fonts.map((f) => f.info.codepoints));
+export async function buildCharset(
+  backend: ComputeBackend,
+  fonts: readonly FontRef[],
+  signal?: AbortSignal,
+  onProgress?: (f: number) => void,
+): Promise<CharsetData> {
+  const merged = await backend.mergeCoverage(fonts.map((f) => f.coverage));
   const ctx = textContext(1, 1);
 
   const n = merged.codepoints.length;
@@ -71,6 +84,11 @@ export async function buildCharset(backend: ComputeBackend, fonts: readonly Font
   let mismatched = 0;
   let font = -1;
   for (let i = 0; i < n; i++) {
+    if ((i & 8191) === 8191) {
+      onProgress?.(i / n);
+      await new Promise((r) => setTimeout(r, 0));
+      signal?.throwIfAborted();
+    }
     const cp = merged.codepoints[i];
     const fi = merged.fontIndex[i];
     if (fi !== font) {
@@ -78,9 +96,8 @@ export async function buildCharset(backend: ComputeBackend, fonts: readonly Font
       font = fi;
     }
     const em = ctx.measureText(String.fromCodePoint(cp)).width / MEASURE_PX;
-    const info = fonts[fi].info;
-    const fontEm = fontAdvance(info, cp) ?? 0;
-    if (!advanceAgrees(em, fontEm, info.isVariable)) {
+    const fontEm = fontAdvance(fonts[fi], cp) ?? 0;
+    if (!advanceAgrees(em, fontEm, fonts[fi].isVariable)) {
       mismatched++;
       continue;
     }
@@ -96,14 +113,9 @@ export async function buildCharset(backend: ComputeBackend, fonts: readonly Font
   // Line metrics come from the primary (first) font, like CSS does.
   const primary = fonts[0];
   ctx.font = cssFont(MEASURE_PX, primary.family);
-  const m = ctx.measureText("0");
-  const upem = primary.info.unitsPerEm;
-  const ascentEm = Number.isFinite(m.fontBoundingBoxAscent)
-    ? m.fontBoundingBoxAscent / MEASURE_PX
-    : primary.info.ascender / upem;
-  const descentEm = Number.isFinite(m.fontBoundingBoxDescent)
-    ? m.fontBoundingBoxDescent / MEASURE_PX
-    : -primary.info.descender / upem;
+  const m = ctx.measureText(" ");
+  const ascentEm = Number.isFinite(m.fontBoundingBoxAscent) ? m.fontBoundingBoxAscent / MEASURE_PX : primary.ascentEm;
+  const descentEm = Number.isFinite(m.fontBoundingBoxDescent) ? m.fontBoundingBoxDescent / MEASURE_PX : primary.descentEm;
 
   return {
     key: charsetKey(fonts),

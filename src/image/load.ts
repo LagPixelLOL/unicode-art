@@ -34,6 +34,7 @@ export function limitSize(w: number, h: number, max = MAX_IMAGE_SIDE): { width: 
 let nextImageId = 1;
 
 export async function decodeImage(blob: Blob, name: string): Promise<SourceImage> {
+  if (blob.size === 0) throw new Error(`${name}: the file is empty.`);
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "default" });
@@ -41,13 +42,15 @@ export async function decodeImage(blob: Blob, name: string): Promise<SourceImage
     throw new Error(`${name}: this image format could not be decoded.`);
   }
   try {
+    if (bitmap.width === 0 || bitmap.height === 0) throw new Error(`${name}: the image has no pixels.`);
     const { width, height } = limitSize(bitmap.width, bitmap.height);
     const ctx = new OffscreenCanvas(width, height).getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("2D canvas is not available");
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(bitmap, 0, 0, width, height);
     const data = ctx.getImageData(0, 0, width, height).data;
-    return { id: nextImageId++, name, width, height, rgba: data };
+    const limited = width !== bitmap.width || height !== bitmap.height;
+    return { id: nextImageId++, name, width, height, limited, rgba: data };
   } finally {
     bitmap.close();
   }

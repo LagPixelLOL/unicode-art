@@ -20,6 +20,7 @@ export interface PackedBank {
   data: Uint32Array;
   norms: Float32Array;
   slotGlyph: Uint32Array;
+  duplicates: number;
 }
 
 export class GpuBank {
