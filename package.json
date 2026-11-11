@@ -1,0 +1,24 @@
+{
+  "name": "unicode-art",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build wasm --release --target web --out-dir pkg --out-name core --no-pack",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build:wasm && npm run test:rust && npm run test:web",
+    "test:rust": "cargo test --manifest-path wasm/Cargo.toml",
+    "test:web": "vitest run"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@webgpu/types": "^0.1.74",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
