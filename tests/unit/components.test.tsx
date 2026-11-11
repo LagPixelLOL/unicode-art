@@ -240,8 +240,8 @@ describe("App", () => {
         <App backend={stubBackend()} />
       </NoticeProvider>,
     );
-    await waitFor(() => expect(screen.getAllByTestId("font-item").length).toBeGreaterThan(200));
-    expect(screen.getByTestId("font-size").textContent).toMatch(/^No font downloaded yet, 212 fonts not downloaded yet/);
+    await waitFor(() => expect(screen.getAllByTestId("font-item").length).toBeGreaterThan(150));
+    expect(screen.getByTestId("font-size").textContent).toMatch(/^No font downloaded yet, \d+ fonts not downloaded yet/);
     // Nothing is downloaded until a conversion needs it.
     expect(fetchSpy).not.toHaveBeenCalled();
     const start = screen.getByTestId("start-button") as HTMLButtonElement;
@@ -267,7 +267,7 @@ describe("App", () => {
 
     // Choosing a preset replaces the list at once, without converting.
     const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.value).toBe("noto-all");
+    expect(select.value).toBe("noto-sans-all");
     fireEvent.change(select, { target: { value: "noto-sans" } });
     await waitFor(() => expect(screen.getAllByTestId("font-item")).toHaveLength(4));
     expect(select.value).toBe("noto-sans");

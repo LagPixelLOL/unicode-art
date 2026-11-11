@@ -9,8 +9,9 @@ ready to copy.
   padded with white and colors are converted to grey, since the output is
   monochrome.
 - Fonts come from presets (downloaded at run time, only when a conversion
-  needs them; the default preset is the entire Noto family from Google Fonts,
-  and there is a gg sans preset fetched from GitHub), from uploaded files
+  needs them; the default preset is the entire Noto Sans family from Google
+  Fonts, there is the same for Noto Serif, and a gg sans preset fetched from
+  GitHub), from uploaded files
   (TTF, OTF, TTC, WOFF, WOFF2), or from a URL of a font file or of a
   stylesheet such as `https://fonts.googleapis.com/css2?family=Inter`.
   GitHub file links (`github.com/.../raw/...` or `/blob/...`) are rewritten

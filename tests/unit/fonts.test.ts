@@ -3,6 +3,8 @@ import {
   DEFAULT_PRESET,
   GG_SANS_URL,
   NOTO_FAMILIES,
+  NOTO_SANS_FAMILIES,
+  NOTO_SERIF_FAMILIES,
   PRESETS,
   type RemoteFont,
   googleCssUrls,
@@ -245,7 +247,9 @@ describe("presets", () => {
     expect(NOTO_FAMILIES).toContain("Noto Emoji");
     expect(NOTO_FAMILIES).toContain("Noto Sans JP");
     expect(NOTO_FAMILIES).not.toContain("Noto Color Emoji");
-    expect(PRESETS.find((p) => p.id === DEFAULT_PRESET)?.fonts.map(remoteName)).toEqual(NOTO_FAMILIES);
+    expect(DEFAULT_PRESET).toBe("noto-sans-all");
+    expect(PRESETS.find((p) => p.id === DEFAULT_PRESET)?.fonts.map(remoteName)).toEqual(NOTO_SANS_FAMILIES);
+    expect(PRESETS.find((p) => p.id === "noto-serif-all")?.fonts.map(remoteName)).toEqual(NOTO_SERIF_FAMILIES);
     expect(PRESETS.find((p) => p.id === "none")?.fonts).toEqual([]);
     // gg sans is fetched from the host that allows cross-origin requests.
     expect(PRESETS.find((p) => p.id === "gg-sans")?.fonts).toEqual([{ kind: "url", name: "gg sans", url: GG_SANS_URL }]);
@@ -255,7 +259,9 @@ describe("presets", () => {
 
   it("recognizes lists that match a preset", () => {
     const keys = (names: (string | null)[]) => names.map((n) => (n === null ? null : remoteKey(googleFont(n))));
-    expect(matchPreset(keys([...NOTO_FAMILIES]))).toBe("noto-all");
+    expect(matchPreset(keys([...NOTO_SANS_FAMILIES]))).toBe("noto-sans-all");
+    expect(matchPreset(keys([...NOTO_SERIF_FAMILIES]))).toBe("noto-serif-all");
+    expect(matchPreset(keys([...NOTO_FAMILIES]))).toBeNull();
     expect(matchPreset(keys(["Noto Sans Mono"]))).toBe("noto-mono");
     expect(matchPreset([])).toBe("none");
     expect(matchPreset([`url:${GG_SANS_URL}`])).toBe("gg-sans");
@@ -310,6 +316,26 @@ describe("presets", () => {
     expect(r.warnings[0]).toMatch(/^Gone: Could not download .*HTTP 404/);
     expect(progress.at(-1)).toEqual([5, 5]);
     expect(await loadRemoteFonts([])).toEqual({ fonts: [], warnings: [] });
+  });
+
+  it("splits the Noto family into a sans serif and a serif set", () => {
+    const sans = new Set(NOTO_SANS_FAMILIES);
+    const serif = new Set(NOTO_SERIF_FAMILIES);
+    expect(NOTO_SANS_FAMILIES[0]).toBe("Noto Sans");
+    expect(NOTO_SERIF_FAMILIES[0]).toBe("Noto Serif");
+    expect(NOTO_SANS_FAMILIES.some((f) => f.startsWith("Noto Serif"))).toBe(false);
+    expect(NOTO_SERIF_FAMILIES.some((f) => f.startsWith("Noto Sans"))).toBe(false);
+    expect(sans.size).toBe(NOTO_SANS_FAMILIES.length);
+    expect(serif.size).toBe(NOTO_SERIF_FAMILIES.length);
+    // Every family is in one of the sets; only the style neutral ones in both.
+    expect(NOTO_FAMILIES.every((f) => sans.has(f) || serif.has(f))).toBe(true);
+    expect(NOTO_FAMILIES.filter((f) => sans.has(f) && serif.has(f))).toEqual(
+      expect.arrayContaining(["Noto Music", "Noto Emoji", "Noto Traditional Nushu", "Noto Znamenny Musical Notation"]),
+    );
+    expect(NOTO_FAMILIES.filter((f) => sans.has(f) && serif.has(f))).toHaveLength(4);
+    expect(sans.has("Noto Sans JP") && serif.has("Noto Serif JP")).toBe(true);
+    expect(serif.has("Noto Naskh Arabic") && !sans.has("Noto Naskh Arabic")).toBe(true);
+    expect(sans.has("Noto Kufi Arabic")).toBe(true);
   });
 
   it("batches families into CSS2 requests", () => {

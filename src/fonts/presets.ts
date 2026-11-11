@@ -46,7 +46,8 @@ export interface Preset {
  * Every Noto family on Google Fonts except Noto Color Emoji (the output is
  * monochrome; the outline based Noto Emoji is included instead). Ordered
  * so the general purpose fonts come first: Sans, symbols, script specific
- * Sans fonts, CJK, then the Serif fonts and the remaining styles.
+ * Sans fonts, CJK, then the Serif fonts and the remaining styles. The
+ * presets split it into a sans serif and a serif set.
  */
 export const NOTO_FAMILIES: readonly string[] = [
   "Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Math", "Noto Music", "Noto Sans Adlam",
@@ -100,6 +101,23 @@ export const NOTO_FAMILIES: readonly string[] = [
   "Noto Znamenny Musical Notation",
 ];
 
+/** Families without "Sans" or "Serif" in their name that have a serif design. */
+const SERIF_STYLE = ["Noto Naskh Arabic", "Noto Nastaliq Urdu", "Noto Rashi Hebrew"];
+/** Style neutral families (symbols, notation, emoji) that both sets fall back to. */
+const NEUTRAL = ["Noto Music", "Noto Emoji", "Noto Traditional Nushu", "Noto Znamenny Musical Notation"];
+
+/** The sans serif half of the Noto family, plus the style neutral families. */
+export const NOTO_SANS_FAMILIES: readonly string[] = NOTO_FAMILIES.filter(
+  (f) => !f.startsWith("Noto Serif") && !SERIF_STYLE.includes(f),
+);
+
+/** The serif half of the Noto family, plus serif styled and style neutral families. */
+export const NOTO_SERIF_FAMILIES: readonly string[] = [
+  ...NOTO_FAMILIES.filter((f) => f.startsWith("Noto Serif")),
+  ...SERIF_STYLE,
+  ...NEUTRAL,
+];
+
 const CJK = ["JP", "KR", "SC", "TC", "HK"];
 
 /** gg sans (Discord). raw.githubusercontent.com allows cross-origin requests; github.com/raw links do not. */
@@ -108,7 +126,16 @@ export const GG_SANS_URL = "https://raw.githubusercontent.com/damnxav/gg-sans-fo
 const google = (families: readonly string[]) => families.map(googleFont);
 
 export const PRESETS: readonly Preset[] = [
-  { id: "noto-all", label: `Noto, entire family (${NOTO_FAMILIES.length} fonts)`, fonts: google(NOTO_FAMILIES) },
+  {
+    id: "noto-sans-all",
+    label: `Noto Sans, entire family (${NOTO_SANS_FAMILIES.length} fonts)`,
+    fonts: google(NOTO_SANS_FAMILIES),
+  },
+  {
+    id: "noto-serif-all",
+    label: `Noto Serif, entire family (${NOTO_SERIF_FAMILIES.length} fonts)`,
+    fonts: google(NOTO_SERIF_FAMILIES),
+  },
   {
     id: "noto-sans",
     label: "Noto Sans with symbols and math",
@@ -125,7 +152,7 @@ export const PRESETS: readonly Preset[] = [
   { id: "none", label: "No fonts (clear the list)", fonts: [] },
 ];
 
-export const DEFAULT_PRESET = "noto-all";
+export const DEFAULT_PRESET = "noto-sans-all";
 
 /** Select value shown when the list matches no preset. */
 export const CUSTOM_PRESET = "custom";
