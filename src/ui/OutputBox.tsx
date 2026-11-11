@@ -11,6 +11,23 @@ export interface FitInput {
   contentHEm: number;
 }
 
+/** Smallest font size the output is laid out at; smaller sizes are scaled down. */
+export const MIN_LAYOUT_FONT_PX = 128;
+
+/**
+ * Browsers position glyphs with a fixed precision (font sizes and advances
+ * snap to fractions such as 1/64 px). Those errors are absolute, so at small
+ * font sizes they add up along a line to a visible drift. The output is
+ * therefore laid out at a large font size that is a multiple of 1/64 px and
+ * scaled to the wanted size with a transform, which keeps the native layout
+ * proportional to the computed one.
+ */
+export function splitFontSize(size: number): { layout: number; scale: number } {
+  if (!(size > 0)) return { layout: size, scale: 1 };
+  const layout = size >= MIN_LAYOUT_FONT_PX ? Math.floor(size * 64) / 64 : MIN_LAYOUT_FONT_PX;
+  return { layout, scale: size / layout };
+}
+
 /** Font size that makes the content touch the box on at least one axis. */
 export function fitFontSize({ boxW, boxH, contentWEm, contentHEm }: FitInput): number {
   if (!(boxW > 0 && boxH > 0 && contentWEm > 0 && contentHEm > 0)) return 0;
@@ -92,7 +109,9 @@ export function OutputBox({ result, placeholder, busy, onLayout }: Props) {
     const { contentWEm, contentHEm } = contentSizeEm(result);
     const lines = Array.from(c.children) as HTMLElement[];
     const apply = (size: number) => {
-      c.style.fontSize = `${size}px`;
+      const { layout, scale } = splitFontSize(size);
+      c.style.fontSize = `${layout}px`;
+      c.style.transform = scale === 1 ? "" : `scale(${scale})`;
       c.style.left = `${(b.clientWidth - contentWEm * size) / 2}px`;
       c.style.top = `${(b.clientHeight - contentHEm * size) / 2}px`;
     };
@@ -131,7 +150,7 @@ export function OutputBox({ result, placeholder, busy, onLayout }: Props) {
       {result ? (
         <div
           ref={content}
-          className="art-text absolute whitespace-pre text-zinc-100"
+          className="art-text absolute origin-top-left whitespace-pre text-zinc-100"
           data-testid="output-text"
           style={{ fontFamily: result.families.map((f) => `"${f}"`).join(", ") }}
         >

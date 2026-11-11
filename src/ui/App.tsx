@@ -11,7 +11,7 @@ import { FontList, isInternalDrag } from "./FontList";
 import { errorText, useNotify } from "./notices";
 import { DETAIL_RANGE, WIDTH_RANGE, readOptions } from "./options";
 import { OutputBox } from "./OutputBox";
-import { asciiOnly, plural } from "./text";
+import { asciiOnly, escapeMarkdown, plural } from "./text";
 import { Timing } from "./Timing";
 import { type RunStage, useConversion } from "./useConversion";
 import { useFontLoader } from "./useFontLoader";
@@ -52,7 +52,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const [invert, setInvert] = useState(false);
   const [fontUrl, setFontUrl] = useState("");
   const [domCheck, setDomCheck] = useState<DomCheck | null>(null);
-  const [copied, setCopied] = useState<"" | "ok" | "fail">("");
+  const [copied, setCopied] = useState<{ which: "plain" | "markdown"; ok: boolean } | null>(null);
   const [lost, setLost] = useState<string | null>(null);
   const [runKey, setRunKey] = useState<string | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -179,17 +179,19 @@ export function App({ backend }: { backend: ComputeBackend }) {
     void conversion.start({ image, options });
   };
 
-  const copy = async () => {
+  const copy = async (which: "plain" | "markdown") => {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(result.text);
-      setCopied("ok");
+      await navigator.clipboard.writeText(which === "plain" ? result.text : escapeMarkdown(result.text));
+      setCopied({ which, ok: true });
     } catch {
-      setCopied("fail");
+      setCopied({ which, ok: false });
       notify("error", "Copying failed: the browser denied clipboard access. Select the text in the output and copy it manually.");
     }
-    setTimeout(() => setCopied(""), 1500);
+    setTimeout(() => setCopied(null), 1500);
   };
+  const copyLabel = (which: "plain" | "markdown", label: string) =>
+    copied?.which === which ? (copied.ok ? "Copied" : "Copy failed") : label;
 
   const provided = useMemo(() => (result ? new Map(result.families.map((f, i) => [f, result.provided[i]])) : null), [result]);
   const used = useMemo(() => {
@@ -250,11 +252,21 @@ export function App({ backend }: { backend: ComputeBackend }) {
               <button
                 type="button"
                 disabled={!result}
-                onClick={copy}
+                onClick={() => void copy("plain")}
                 data-testid="copy-button"
-                className={`${buttonClass} flex-1 py-2`}
+                className={`${buttonClass} min-w-0 flex-1 py-2 whitespace-nowrap`}
               >
-                {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy text"}
+                {copyLabel("plain", "Copy text")}
+              </button>
+              <button
+                type="button"
+                disabled={!result}
+                onClick={() => void copy("markdown")}
+                data-testid="copy-escaped-button"
+                title="Copies the text with Markdown punctuation backslash escaped, so it shows literally when pasted into Markdown"
+                className={`${buttonClass} min-w-0 flex-1 py-2 whitespace-nowrap`}
+              >
+                {copyLabel("markdown", "Copy escaped")}
               </button>
               {result && lastTotalMs !== null && <Timing result={result} totalMs={lastTotalMs} verifyMs={verifyMs} />}
             </div>

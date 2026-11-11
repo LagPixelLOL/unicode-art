@@ -37,3 +37,12 @@ export function summarizeExclusions(rules: readonly ExclusionRule[]): ExclusionS
     ranges: rules.filter((r) => r.kind === "range").map(({ key, description }) => ({ key, description })),
   };
 }
+
+/**
+ * Backslash escapes every ASCII punctuation character, which CommonMark (and
+ * GitHub, Discord and most other Markdown flavors) then shows literally.
+ * Whitespace and all other characters are kept as they are.
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[!-/:-@[-`{-~]/g, "\\$&");
+}

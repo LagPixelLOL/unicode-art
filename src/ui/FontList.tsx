@@ -77,7 +77,7 @@ export function FontList({ fonts, provided, used, onMove, onRemove, locked = fal
 
   return (
     <ol
-      className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain py-1 pr-1"
+      className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto py-1 pr-1"
       aria-label="Fonts in priority order"
       data-testid="font-list"
       onDragLeave={(e) => {

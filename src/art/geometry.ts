@@ -18,7 +18,7 @@ export interface GeometryInput {
 }
 
 export interface Geometry {
-  /** Font size in sampling pixels. */
+  /** Font size in sampling pixels (a multiple of 1/64). */
   fontPx: number;
   /** Row width in sampling pixels. */
   widthPx: number;
@@ -37,7 +37,8 @@ export const DEFAULT_CH_EM = 0.5;
 
 export function computeGeometry(g: GeometryInput): Geometry {
   if (!(g.chEm > 0) || !(g.detail >= 1) || !(g.widthCells >= 1)) throw new Error("Invalid geometry input");
-  const fontPx = g.detail / g.chEm;
+  // A multiple of 1/64 px, the precision browsers shape text with.
+  const fontPx = Math.max(1 / 64, Math.round((g.detail / g.chEm) * 64) / 64);
   const contentPx = (g.ascentEm + g.descentEm) * fontPx;
   const cellH = Math.max(1, Math.round(contentPx));
   return {

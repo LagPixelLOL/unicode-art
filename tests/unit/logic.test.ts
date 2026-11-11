@@ -23,8 +23,8 @@ import { dropIndex } from "../../src/ui/FontList";
 import { placePanel } from "../../src/ui/HoverPanel";
 import { errorText } from "../../src/ui/notices";
 import { readOptions } from "../../src/ui/options";
-import { contentSizeEm, fitFontSize } from "../../src/ui/OutputBox";
-import { asciiOnly, plural, summarizeExclusions } from "../../src/ui/text";
+import { contentSizeEm, fitFontSize, splitFontSize } from "../../src/ui/OutputBox";
+import { asciiOnly, escapeMarkdown, plural, summarizeExclusions } from "../../src/ui/text";
 import { formatMs, timingRows } from "../../src/ui/Timing";
 import { repoFile } from "./helpers/core";
 
@@ -47,6 +47,16 @@ describe("geometry", () => {
     expect(geo.lineHeightEm).toBeCloseTo(23 / 20);
     // Half leading: (23 - 22.999...) / 2 above the ascent.
     expect(geo.baselinePx).toBeCloseTo(0.5 * (23 - 23) + 18, 5);
+  });
+
+  it("uses font sizes browsers can shape exactly", () => {
+    const g = computeGeometry({ chEm: 0.5718, ascentEm: 1, descentEm: 0.3, detail: 10, widthCells: 80 });
+    expect(g.fontPx * 64).toBe(Math.round(g.fontPx * 64));
+    expect(Math.abs(g.fontPx * 0.5718 - 10)).toBeLessThan(0.01);
+    expect(splitFontSize(7.3)).toEqual({ layout: 128, scale: 7.3 / 128 });
+    expect(splitFontSize(128)).toEqual({ layout: 128, scale: 1 });
+    expect(splitFontSize(200.3)).toEqual({ layout: 12819 / 64, scale: 200.3 / (12819 / 64) });
+    expect(splitFontSize(0)).toEqual({ layout: 0, scale: 1 });
   });
 
   it("centres the content area in rounded rows", () => {
@@ -259,15 +269,27 @@ describe("DOM verification", () => {
     expect(evaluateDom(r, { ...good, baseline: good.baseline + 5 }).pass).toBe(false);
     expect(evaluateDom(r, { ...good, baseline: null }).pass).toBe(true);
     // Tiny sub pixel differences are tolerated.
-    expect(evaluateDom(r, { ...good, widths: [36.5, 0, 18], samples: [[0, 1, 20.5]] }).pass).toBe(true);
-    expect(domTolerance(10)).toBe(0.75);
-    expect(domTolerance(1000)).toBe(2);
-    expect(baselineTolerance(10)).toBe(2);
-    expect(baselineTolerance(100)).toBe(6);
+    expect(evaluateDom(r, { ...good, widths: [36.4, 0, 18], samples: [[0, 1, 20.4]] }).pass).toBe(true);
+    expect(domTolerance(10)).toBe(0.5);
+    expect(domTolerance(1000)).toBe(1);
+    expect(baselineTolerance(10)).toBe(1);
+    expect(baselineTolerance(100)).toBe(3);
   });
 });
 
 describe("ui helpers", () => {
+  it("escapes Markdown", () => {
+    expect(escapeMarkdown("*a_b* [x](y) #1 `c` \\ |t| ~s~ <h> 1. +-!")).toBe(
+      "\\*a\\_b\\* \\[x\\]\\(y\\) \\#1 \\`c\\` \\\\ \\|t\\| \\~s\\~ \\<h\\> 1\\. \\+\\-\\!",
+    );
+    // Everything else, including whitespace, line breaks and non-ASCII, stays.
+    expect(escapeMarkdown("ab 09\n\u2588 \u3000z")).toBe("ab 09\n\u2588 \u3000z");
+    const all = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("");
+    const escaped = escapeMarkdown(all);
+    expect(escaped.replace(/\\(.)/g, "$1")).toBe(all);
+    expect((escaped.match(/\\/g) ?? []).length).toBe(33); // 32 escapes plus the escaped backslash itself
+  });
+
   it("keeps text ASCII", () => {
     expect(asciiOnly("caf\u00e9 \u6f22 ok~")).toBe("caf? ? ok~");
     expect(asciiOnly("tab\there")).toBe("tab?here");

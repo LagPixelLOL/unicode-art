@@ -141,12 +141,12 @@ export interface DomCheck {
 }
 
 export function domTolerance(px: number): number {
-  return Math.max(0.75, px * 0.002);
+  return Math.max(0.5, px * 0.001);
 }
 
-/** Browsers round font ascent, descent and half leading to whole pixels. */
+/** Browsers round font ascent, descent and half leading to whole layout pixels. */
 export function baselineTolerance(fontSize: number): number {
-  return Math.max(2, fontSize * 0.06);
+  return Math.max(1, fontSize * 0.03);
 }
 
 /** Compares DOM measurements (see OutputView.measure) with the layout. */

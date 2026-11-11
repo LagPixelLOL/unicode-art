@@ -28,8 +28,10 @@ ready to copy.
 - Nothing runs until you press Start. While converting, Start becomes Cancel,
   which stops the work immediately.
 - The output is scaled to fit its box exactly (letterboxed with black where
-  the aspect ratio differs). Copy text copies it to the clipboard; hover the
-  time to see where it was spent.
+  the aspect ratio differs). Copy text copies it to the clipboard, and Copy
+  escaped copies it with every ASCII punctuation character backslash escaped,
+  so it shows literally when pasted into Markdown. Hover the time to see where
+  it was spent.
 - Every result is verified against the browser's native text rendering (see
   below).
 
@@ -71,7 +73,10 @@ later (see "Backends").
    never accumulates along a line.
 7. Rendering: the lines are rendered as text with a CSS font stack of the
    loaded fonts, with kerning, ligatures and contextual alternates disabled,
-   and scaled to fit the box.
+   and scaled to fit the box. Browsers place glyphs with a fixed precision
+   (about 1/64 px), an error that adds up along a line at small font sizes,
+   so the text is laid out at 128 px or more (a multiple of 1/64 px) and
+   scaled down with a CSS transform.
 
 By default bright areas get dense characters, because the output is light
 text on black; "Flip black and white" inverts that.
