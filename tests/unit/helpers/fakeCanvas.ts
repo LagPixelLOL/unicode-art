@@ -7,6 +7,8 @@ export interface FakeFont {
   advances: Map<number, number>;
   ascentEm: number;
   descentEm: number;
+  /** Overrides the ink of this font's glyphs (fonts draw glyphs differently). */
+  ink?: (cp: number) => number;
 }
 
 export const fakeFonts = new Map<string, FakeFont>();
@@ -101,9 +103,15 @@ class FakeContext {
       const f = resolve(families, cp);
       const top = y - (f?.ascentEm ?? 0.8) * px;
       const h = ((f?.ascentEm ?? 0.8) + (f?.descentEm ?? 0.2)) * px;
-      this.fillRect(Math.round(pen), Math.round(top), Math.round(adv * inkFraction(cp)), Math.round(h));
+      const ink = f?.ink ? f.ink(cp) : inkFraction(cp);
+      this.fillRect(Math.round(pen), Math.round(top), Math.round(adv * ink), Math.round(h));
       pen += adv + spacing;
     }
+  }
+
+  drawImage(): void {
+    this.fillStyle = "#fff";
+    this.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   getImageData(x: number, y: number, w: number, h: number) {

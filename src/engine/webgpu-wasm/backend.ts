@@ -19,7 +19,7 @@ import type {
 } from "../backend";
 import { throwIfAborted } from "../backend";
 import type { Core } from "./core";
-import { GpuBank, Matcher } from "./matcher";
+import { GpuBank, Matcher, type MatcherTuning } from "./matcher";
 
 function bytes(a: Uint8Array | Uint8ClampedArray): Uint8Array {
   return a instanceof Uint8Array ? a : new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
@@ -53,14 +53,19 @@ export class WebGpuWasmBackend implements ComputeBackend {
   readonly id = "webgpu-wasm";
   readonly label = "WebGPU + WebAssembly";
   readonly lost: Promise<string>;
-  private readonly matcher: Matcher;
+  private matcherInstance: Matcher | null = null;
 
   constructor(
     private readonly core: Core,
     private readonly device: GPUDevice,
+    private readonly tuning: MatcherTuning = {},
   ) {
-    this.matcher = new Matcher(device);
     this.lost = device.lost.then((info) => `The GPU device was lost (${info.reason}): ${info.message}`);
+  }
+
+  private get matcher(): Matcher {
+    this.matcherInstance ??= new Matcher(this.device, this.tuning);
+    return this.matcherInstance;
   }
 
   async parseFont(data: Uint8Array): Promise<FontInfoData> {

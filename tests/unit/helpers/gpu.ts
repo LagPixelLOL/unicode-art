@@ -2,13 +2,18 @@
 // GPU tests can be skipped on machines without any GPU or software driver.
 
 let devicePromise: Promise<GPUDevice | null> | null = null;
+// Dawn crashes if its instance is garbage collected while devices live, so
+// it is kept reachable for the lifetime of the process.
+const keepAlive: unknown[] = [];
 
 export function gpuDevice(): Promise<GPUDevice | null> {
   devicePromise ??= (async () => {
     try {
       const { create, globals } = await import("webgpu");
       Object.assign(globalThis, globals);
-      const adapter = await create([]).requestAdapter();
+      const gpu = create([]);
+      keepAlive.push(gpu);
+      const adapter = await gpu.requestAdapter();
       if (!adapter) return null;
       return await adapter.requestDevice({
         requiredLimits: {

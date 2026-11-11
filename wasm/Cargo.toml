@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 description = "WASM compute core for the unicode art generator: font parsing, image preparation, glyph packing and row layout solving"
-license = "MIT"
 publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+# All tests live in tests/; skip the empty unit and doc test harnesses.
+test = false
+doctest = false
 
 [dependencies]
 ttf-parser = "0.25.1"

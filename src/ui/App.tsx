@@ -438,7 +438,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
             </div>
             {result && (
               <ul className="mt-3 space-y-1 text-xs" aria-label="Verification" data-testid="verification">
-                <li className="flex gap-2" data-result={canvasCheck ? (canvasCheck.pass ? "pass" : "fail") : "pending"}>
+                <li className="flex items-start gap-2" data-result={canvasCheck ? (canvasCheck.pass ? "pass" : "fail") : "pending"}>
                   <Badge ok={canvasCheck ? canvasCheck.pass : null} />
                   <span className="min-w-0 text-zinc-400">
                     Native text render vs computed glyphs
@@ -449,7 +449,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
                           : `, worst line ${canvasCheck.worstRow + 1} at ${(canvasCheck.worstRowSimilarity * 100).toFixed(1)}%`)}
                   </span>
                 </li>
-                <li className="flex gap-2" data-result={domCheck ? (domCheck.pass ? "pass" : "fail") : "pending"}>
+                <li className="flex items-start gap-2" data-result={domCheck ? (domCheck.pass ? "pass" : "fail") : "pending"}>
                   <Badge ok={domCheck ? domCheck.pass : null} />
                   <span className="min-w-0 text-zinc-400">
                     Page layout vs computed positions

@@ -82,12 +82,22 @@ export function abortable<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
 /** Uniform slots must be 256 byte aligned for dynamic offsets. */
 const PARAM_STRIDE = 256;
 
+export interface MatcherTuning {
+  /** Multiply-adds per dispatch (see planDispatches). */
+  dispatchBudget?: number;
+  /** Bytes per row batch buffer (see planBatches). */
+  batchBytes?: number;
+}
+
 export class Matcher {
   private pipelines = new Map<string, Promise<GPUComputePipeline>>();
   private readonly layout: GPUBindGroupLayout;
   readonly limits: DeviceLimits;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly tuning: MatcherTuning = {},
+  ) {
     this.limits = device.limits;
     const storage = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({
       binding,
@@ -151,8 +161,10 @@ export class Matcher {
     const wg = chooseWorkgroup(cellH, maxWidth, this.limits, width);
     if (wg === null) throw new Error("Glyph cells are too large for this GPU's shared memory; lower the detail.");
     const pipeline = await abortable(this.pipeline(wg.size, cellH, maxWidth), signal);
-    const batches = planBatches(rows, width, cellH, binCount, this.limits);
-    const plans = batches.map((b) => planDispatches(b.rowCount, width, cellH, maxWidth, binCount, maxGroupCount));
+    const batches = planBatches(rows, width, cellH, binCount, this.limits, this.tuning.batchBytes);
+    const plans = batches.map((b) =>
+      planDispatches(b.rowCount, width, cellH, maxWidth, binCount, maxGroupCount, this.tuning.dispatchBudget),
+    );
     const totalWork = plans.flat().reduce((s, d) => s + d.work, 0) || 1;
     let doneWork = 0;
     const sizer = new SubmissionSizer();

@@ -104,7 +104,7 @@ fn readme_documents_every_rule() {
     let readme = std::fs::read_to_string(crate::repo_root().join("README.md")).expect("README.md");
     for line in exclusion_rules().lines() {
         let key = line.split('\t').nth(1).unwrap();
-        assert!(readme.contains(key), "README.md does not mention {key}");
+        assert!(readme.contains(&format!("`{key}`")), "README.md does not list `{key}`");
     }
 }
 

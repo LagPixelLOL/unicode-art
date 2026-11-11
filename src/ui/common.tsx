@@ -29,5 +29,5 @@ export function Progress({ value, label }: { value: number; label?: string }) {
 
 export function Badge({ ok }: { ok: boolean | null }) {
   const cls = ok === null ? "bg-zinc-800 text-zinc-400" : ok ? "bg-emerald-950 text-emerald-400" : "bg-red-950 text-red-400";
-  return <span className={`shrink-0 rounded px-1.5 font-medium ${cls}`}>{ok === null ? "..." : ok ? "PASS" : "FAIL"}</span>;
+  return <span className={`shrink-0 self-start rounded px-1.5 leading-5 font-medium ${cls}`}>{ok === null ? "..." : ok ? "PASS" : "FAIL"}</span>;
 }

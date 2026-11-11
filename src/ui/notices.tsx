@@ -107,7 +107,7 @@ export function NoticeProvider({ children }: { children: ReactNode }) {
   return (
     <NoticeContext.Provider value={notify}>
       {children}
-      <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] flex-col gap-2 sm:w-96" aria-live="polite">
+      <div className="pointer-events-none fixed bottom-4 left-4 z-50 flex w-[calc(100vw-2rem)] flex-col gap-2 sm:w-96" aria-live="polite">
         {notices.map((n) => (
           <NoticeItem key={n.id} notice={n} onClose={close(n.id)} />
         ))}
