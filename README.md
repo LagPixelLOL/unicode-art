@@ -202,6 +202,10 @@ npm run build      # production build in dist/
 npm test           # builds the core, runs the Rust and the Vitest suites
 ```
 
+The build uses relative URLs, so `dist/` can be served from any path (the
+site root or a subdirectory such as GitHub Pages' `/unicode-art/`) without
+configuration. Any static file server works; it must serve `.wasm` files.
+
 `npm run test:rust` and `npm run test:web` run the suites separately
 (`test:web` needs a built core, `npm run build:wasm`).
 

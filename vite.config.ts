@@ -8,6 +8,9 @@ export default defineConfig(({ command, mode }) => {
   const isDev = command === "serve" || mode === "development";
   console.log(`Development mode: ${isDev}`);
   return {
+    // Relative asset URLs, so the build works under any path (for example
+    // https://example.com/some/dir/), not only at the site root.
+    base: "./",
     plugins: [react(), tailwindcss(), isDev && consoleForwardPlugin()],
     resolve: {
       alias: {
