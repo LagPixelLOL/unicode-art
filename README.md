@@ -89,11 +89,12 @@ text on black; "Flip black and white" inverts that.
 Each result is checked twice, and the outcome is shown in the status panel:
 
 - Native text render vs computed glyphs: every line is drawn as one native
-  text run with the full font stack, and separately every computed glyph is
-  drawn with the font it was matched with at its computed position. The two
-  images are compared (after a 1 pixel blur, so sub pixel placement of fine
-  textures does not count). This catches wrong font fallback, shaping and
-  advance differences.
+  text run with the full font stack, and separately as runs of the glyphs
+  matched with each font, drawn with only that font. The two images are
+  compared (after a 1 pixel blur). In addition, the width of every line as
+  one run is compared with the sum of its glyphs measured one by one. This
+  catches wrong font fallback, shaping, and advances that change in context
+  (for example characters that the browser clusters with their neighbour).
 - Page layout vs computed positions: the rendered page is measured (line
   widths, sampled glyph positions, baseline and text content) and compared
   with the computed layout at the displayed font size.
@@ -114,6 +115,15 @@ digits, `NSM` nonspacing marks, `B` paragraph separators, `S` segment
 separators such as tab, `BN` boundary neutrals, `LRE`, `LRO`, `RLE`, `RLO`,
 `PDF` embedding and override controls, `LRI`, `RLI`, `FSI`, `PDI` isolate
 controls.
+
+Grapheme clusters (`Grapheme_Cluster_Break`): characters that join the
+character before or after them into one grapheme cluster, such as Extend,
+SpacingMark, Prepend and ZWJ characters and Hangul jamo. Browsers lay out,
+measure and select a cluster as one unit, so these characters would not get
+their own advance. An example is U+FF9E, the halfwidth katakana voiced sound
+mark, which is a modifier letter but extends the previous character. The
+test is done with the Unicode segmentation rules against usable neighbours
+(a Latin letter, Hangul syllables, and the character itself).
 
 Blocks whose characters need complex shaping, joining or form sequences:
 

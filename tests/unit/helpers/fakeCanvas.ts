@@ -18,12 +18,15 @@ export const fakeOptions = {
   reverseFallback: false,
   /** Extra advance (em) added by the "browser" to this code point. */
   advanceSkew: new Map<number, number>(),
+  /** Extra advance (em) of a code point that follows another one in a run (context dependent shaping). */
+  inRunSkew: new Map<number, number>(),
 };
 
 export function resetFake(): void {
   fakeFonts.clear();
   fakeOptions.reverseFallback = false;
   fakeOptions.advanceSkew.clear();
+  fakeOptions.inRunSkew.clear();
 }
 
 function parseFont(font: string): { px: number; families: string[] } {
@@ -84,7 +87,12 @@ class FakeContext {
   measureText(text: string) {
     const { px, families } = parseFont(this.font);
     let w = 0;
-    for (const ch of text) w += this.advance(families, ch.codePointAt(0)!) * px;
+    let first = true;
+    for (const ch of text) {
+      const cp = ch.codePointAt(0)!;
+      w += (this.advance(families, cp) + (first ? 0 : (fakeOptions.inRunSkew.get(cp) ?? 0))) * px;
+      first = false;
+    }
     const primary = fakeFonts.get(families[0]);
     return {
       width: w,
@@ -97,9 +105,11 @@ class FakeContext {
     const { px, families } = parseFont(this.font);
     const spacing = parseFloat(this.letterSpacing) || 0;
     let pen = x;
+    let first = true;
     for (const ch of text) {
       const cp = ch.codePointAt(0)!;
-      const adv = this.advance(families, cp) * px;
+      const adv = (this.advance(families, cp) + (first ? 0 : (fakeOptions.inRunSkew.get(cp) ?? 0))) * px;
+      first = false;
       const f = resolve(families, cp);
       const top = y - (f?.ascentEm ?? 0.8) * px;
       const h = ((f?.ascentEm ?? 0.8) + (f?.descentEm ?? 0.2)) * px;

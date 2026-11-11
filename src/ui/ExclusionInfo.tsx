@@ -21,6 +21,12 @@ export function ExclusionInfo({ rules }: { rules: readonly ExclusionRule[] }) {
       <p>{s.categories}</p>
       <h3 className="mt-3 font-medium text-zinc-200">Bidi classes</h3>
       <p>{s.bidi}</p>
+      {s.grapheme && (
+        <>
+          <h3 className="mt-3 font-medium text-zinc-200">Grapheme clusters</h3>
+          <p>{s.grapheme.charAt(0).toUpperCase() + s.grapheme.slice(1)}.</p>
+        </>
+      )}
       <h3 className="mt-3 font-medium text-zinc-200">Blocks needing complex shaping, joining or sequences</h3>
       <ul className="mt-1 space-y-0.5">
         {s.ranges.map((r) => (

@@ -1,4 +1,4 @@
-use unicode_art_core::charset::{EXCLUDED_RANGES, exclusion_rules, is_usable, merge_coverage};
+use unicode_art_core::charset::{EXCLUDED_RANGES, exclusion_rules, is_usable, joins_neighbours, merge_coverage};
 
 #[test]
 fn accepts_plain_left_to_right_characters() {
@@ -70,10 +70,30 @@ fn rejects_unusable_characters() {
         (0x10900, "phoenician (right-to-left)"),
         (0x1E900, "adlam (right-to-left, joining)"),
         (0x11000, "brahmi sign"),
+        (0xFF9E, "halfwidth katakana voiced sound mark (grapheme extend)"),
+        (0xFF9F, "halfwidth katakana semi-voiced sound mark (grapheme extend)"),
+        (0x0E33, "thai sara am (spacing mark)"),
+        (0x0EB3, "lao vowel sign am (spacing mark)"),
+        (0x302E, "hangul single dot tone mark"),
+        (0x1D165, "musical symbol combining stem"),
+        (0x11A8, "hangul trailing jamo"),
     ];
     for (cp, name) in cases {
         assert!(!is_usable(cp), "{name} (U+{cp:04X}) should be rejected");
     }
+}
+
+#[test]
+fn grapheme_cluster_members_are_rejected() {
+    for cp in [0xFF9E, 0x0E33, 0x0301, 0x200D, 0x1F3FB, 0xE0020] {
+        assert!(joins_neighbours(char::from_u32(cp).unwrap()), "U+{cp:04X} joins");
+    }
+    // Standalone characters, including Hangul syllables and emoji.
+    for cp in [0x41, 0x20, 0xAC00, 0xD7A3, 0x4E00, 0xFF9D, 0x30AC, 0x1F600, 0x2588, 0x0E01] {
+        assert!(!joins_neighbours(char::from_u32(cp).unwrap()), "U+{cp:04X} stands alone");
+    }
+    // Every printable ASCII character stays usable.
+    assert!((0x20..0x7F).all(is_usable));
 }
 
 #[test]
@@ -94,7 +114,7 @@ fn exclusion_rules_are_ascii_and_complete() {
         let key = if lo == hi { format!("U+{lo:04X}") } else { format!("U+{lo:04X}-U+{hi:04X}") };
         assert!(lines.iter().any(|l| l.starts_with(&format!("range\t{key}\t"))), "{key}");
     }
-    for key in ["category\tMn\t", "category\tCc\t", "category\tCf\t", "bidi\tR\t", "bidi\tAL\t"] {
+    for key in ["category\tMn\t", "category\tCc\t", "category\tCf\t", "bidi\tR\t", "bidi\tAL\t", "grapheme\tGrapheme_Cluster_Break\t"] {
         assert!(lines.iter().any(|l| l.starts_with(key)), "{key}");
     }
 }

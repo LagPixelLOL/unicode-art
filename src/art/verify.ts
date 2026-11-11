@@ -21,6 +21,18 @@ export interface CanvasCheck {
   worstRow: number;
   worstRowSimilarity: number;
   badRows: number;
+  /**
+   * Largest difference between the width of a row as one native run and the
+   * sum of its glyphs measured one by one (sampling pixels). Non-zero when
+   * the browser changes advances in context, e.g. by clustering characters.
+   */
+  maxAdvanceError: number;
+  advanceRows: number;
+}
+
+/** Allowed run vs glyph sum difference in sampling pixels. */
+export function advanceTolerance(rowPx: number): number {
+  return Math.max(0.5, rowPx * 0.001);
 }
 
 /**
@@ -40,25 +52,48 @@ function context(w: number, h: number): OffscreenCanvasRenderingContext2D {
 
 /**
  * Renders every row as one native text run with the full font stack, and
- * separately draws each computed glyph on its own with the font it was
- * matched with, then compares both pixel by pixel. The separate glyphs
- * advance by their own measured width at this exact font size, so a glyph
- * that the run draws with another font (or shapes differently) shifts
- * everything after it. Exact positions are checked by the page layout check.
+ * separately draws the row as runs of the glyphs matched with each font,
+ * using only that font, then compares both pixel by pixel. Within a run
+ * both drawings use the same native text path, so they agree to the sub
+ * pixel; a glyph that the full stack draws with another font (or shapes
+ * differently) changes its pixels and shifts everything after it. Exact
+ * positions are checked by the page layout check.
  */
+export interface FontSegment {
+  font: number;
+  text: string;
+}
+
+/** Splits a row into runs of consecutive glyphs matched with the same font. */
+export function fontSegments(result: Pick<ArtResult, "layout" | "glyphFont" | "glyphCodepoint">, row: number): FontSegment[] {
+  const { layout } = result;
+  const out: FontSegment[] = [];
+  for (let i = layout.rowOffsets[row]; i < layout.rowOffsets[row + 1]; i++) {
+    const g = layout.glyphs[i];
+    const font = result.glyphFont[g];
+    const ch = String.fromCodePoint(result.glyphCodepoint[g]);
+    const last = out.at(-1);
+    if (last && last.font === font) last.text += ch;
+    else out.push({ font, text: ch });
+  }
+  return out;
+}
+
 /** Rows drawn or compared between checks for cancellation. */
 const VERIFY_SLICE = 32;
 
 export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, signal?: AbortSignal): Promise<CanvasCheck> {
-  const { geometry: geo, layout, rows } = result;
+  const { geometry: geo, rows } = result;
   const w = geo.widthPx;
   const h = rows * geo.cellH;
   const native = context(w, h);
   native.font = cssFont(geo.fontPx, result.families);
   native.letterSpacing = `${LIGATURE_BREAKING_SPACING}px`;
   const computed = context(w, h);
-  let font = -1;
-  const widths = new Map<number, number>();
+  computed.letterSpacing = `${LIGATURE_BREAKING_SPACING}px`;
+  const glyphWidth = new Map<number, number>();
+  let maxAdvanceError = 0;
+  let advanceRows = 0;
   for (let r = 0; r < rows; r++) {
     if (r % VERIFY_SLICE === VERIFY_SLICE - 1) {
       await nextTask();
@@ -67,21 +102,26 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, s
     const y = r * geo.cellH + geo.baselinePx;
     native.fillText(result.lines[r], 0, y);
     let x = 0;
-    for (let i = layout.rowOffsets[r]; i < layout.rowOffsets[r + 1]; i++) {
-      const g = layout.glyphs[i];
-      if (result.glyphFont[g] !== font) {
-        font = result.glyphFont[g];
-        computed.font = cssFont(geo.fontPx, result.families[font]);
-      }
-      const ch = String.fromCodePoint(result.glyphCodepoint[g]);
-      let advance = widths.get(g);
-      if (advance === undefined) {
-        advance = computed.measureText(ch).width;
-        widths.set(g, advance);
-      }
-      computed.fillText(ch, x, y);
-      x += advance + LIGATURE_BREAKING_SPACING;
+    for (const seg of fontSegments(result, r)) {
+      computed.font = cssFont(geo.fontPx, result.families[seg.font]);
+      computed.fillText(seg.text, x, y);
+      x += computed.measureText(seg.text).width;
     }
+    // Glyphs measured on their own, each with its matched font.
+    let sum = 0;
+    for (let i = result.layout.rowOffsets[r]; i < result.layout.rowOffsets[r + 1]; i++) {
+      const g = result.layout.glyphs[i];
+      let gw = glyphWidth.get(g);
+      if (gw === undefined) {
+        computed.font = cssFont(geo.fontPx, result.families[result.glyphFont[g]]);
+        gw = computed.measureText(String.fromCodePoint(result.glyphCodepoint[g])).width;
+        glyphWidth.set(g, gw);
+      }
+      sum += gw;
+    }
+    const err = Math.abs(native.measureText(result.lines[r]).width - sum);
+    maxAdvanceError = Math.max(maxAdvanceError, err);
+    if (err > advanceTolerance(sum)) advanceRows++;
   }
   const a = native.getImageData(0, 0, w, h).data;
   const b = computed.getImageData(0, 0, w, h).data;
@@ -109,11 +149,13 @@ export async function verifyCanvas(result: ArtResult, backend: ComputeBackend, s
     }
   }
   return {
-    pass: all.similarity >= CANVAS_MIN_SIMILARITY && badRows === 0,
+    pass: all.similarity >= CANVAS_MIN_SIMILARITY && badRows === 0 && advanceRows === 0,
     similarity: all.similarity,
     worstRow,
     worstRowSimilarity,
     badRows,
+    maxAdvanceError,
+    advanceRows,
   };
 }
 

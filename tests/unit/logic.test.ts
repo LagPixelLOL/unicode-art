@@ -3,7 +3,7 @@ import { cssFont, planAtlas } from "../../src/art/atlas";
 import { advanceAgrees, charsetKey, fontAdvance } from "../../src/art/charset";
 import type { ArtResult } from "../../src/art/generate";
 import { DEFAULT_CH_EM, MAX_GLYPH_CELLS, computeGeometry, rowCount, selectGlyphs } from "../../src/art/geometry";
-import { baselineTolerance, domTolerance, evaluateDom } from "../../src/art/verify";
+import { baselineTolerance, domTolerance, evaluateDom, fontSegments } from "../../src/art/verify";
 import { AbortedError, type BackendFactory, isAbort, throwIfAborted } from "../../src/engine/backend";
 import { selectBackend } from "../../src/engine/registry";
 import { concatLayouts } from "../../src/engine/webgpu-wasm/backend";
@@ -239,6 +239,23 @@ function fakeResult(): ArtResult {
   };
 }
 
+describe("canvas verification", () => {
+  it("groups each row into runs of the same font", () => {
+    const r = fakeResult();
+    r.glyphFont = Uint32Array.from([0, 1, 0]);
+    r.layout.glyphs = Uint32Array.from([0, 0, 1, 2, 2, 0]);
+    r.layout.rowOffsets = Uint32Array.from([0, 5, 5, 6]);
+    r.glyphCodepoint = Uint32Array.from([0x61, 0x1f600, 0x63]);
+    expect(fontSegments(r, 0)).toEqual([
+      { font: 0, text: "aa" },
+      { font: 1, text: "\u{1f600}" },
+      { font: 0, text: "cc" },
+    ]);
+    expect(fontSegments(r, 1)).toEqual([]);
+    expect(fontSegments(r, 2)).toEqual([{ font: 0, text: "a" }]);
+  });
+});
+
 describe("DOM verification", () => {
   const r = fakeResult();
   const scale = 2; // font size 40 px vs 20 px sampling font
@@ -304,7 +321,9 @@ describe("ui helpers", () => {
       { kind: "bidi", key: "LRE", description: "embedding" },
       { kind: "bidi", key: "RLE", description: "embedding" },
       { kind: "range", key: "U+0590-U+08FF", description: "RTL" },
+      { kind: "grapheme", key: "Grapheme_Cluster_Break", description: "joiners" },
     ]);
+    expect(s.grapheme).toBe("joiners");
     expect(s.categories).toBe("Mn (marks), Cc (controls)");
     expect(s.bidi).toBe("LRE/RLE (embedding)");
     expect(s.ranges).toEqual([{ key: "U+0590-U+08FF", description: "RTL" }]);

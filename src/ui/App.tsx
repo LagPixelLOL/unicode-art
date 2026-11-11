@@ -490,9 +490,9 @@ export function App({ backend }: { backend: ComputeBackend }) {
                     Native text render vs computed glyphs
                     {canvasCheck &&
                       `: ${(canvasCheck.similarity * 100).toFixed(2)}% similar` +
-                        (canvasCheck.pass
-                          ? ""
-                          : `, worst line ${canvasCheck.worstRow + 1} at ${(canvasCheck.worstRowSimilarity * 100).toFixed(1)}%`)}
+                        (canvasCheck.badRows ? `, worst line ${canvasCheck.worstRow + 1} at ${(canvasCheck.worstRowSimilarity * 100).toFixed(1)}%` : "") +
+                        `, run widths off by up to ${canvasCheck.maxAdvanceError.toFixed(2)} px` +
+                        (canvasCheck.advanceRows ? ` in ${plural(canvasCheck.advanceRows, "line")}` : "")}
                   </span>
                 </li>
                 <li className="flex items-start gap-2" data-result={domCheck ? (domCheck.pass ? "pass" : "fail") : "pending"}>

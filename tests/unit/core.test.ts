@@ -71,7 +71,8 @@ describe("charset", () => {
   it("exposes the exclusion rules, all documented in the README", async () => {
     const rules = await backend.exclusionRules();
     expect(rules.length).toBeGreaterThan(40);
-    expect(rules.every((r) => ["range", "category", "bidi"].includes(r.kind) && r.key && r.description)).toBe(true);
+    expect(rules.every((r) => ["range", "category", "bidi", "grapheme"].includes(r.kind) && r.key && r.description)).toBe(true);
+    expect(core.isUsable(0xff9e)).toBe(false);
     const readme = repoFile("README.md");
     for (const r of rules) expect(readme).toContain(`\`${r.key}\``);
     expect(core.isUsable(0x41)).toBe(true);

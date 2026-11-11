@@ -31,7 +31,7 @@ export interface MergedCharset {
 }
 
 export interface ExclusionRule {
-  kind: "range" | "category" | "bidi";
+  kind: "range" | "category" | "bidi" | "grapheme";
   key: string;
   description: string;
 }

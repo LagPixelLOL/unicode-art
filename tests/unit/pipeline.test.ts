@@ -122,6 +122,17 @@ describe.skipIf(!device)("conversion pipeline", () => {
     const r = await gen.generate(fonts, halves(90, 60), OPTIONS);
     const ok = await verifyCanvas(r, backend);
     expect(ok.pass).toBe(true);
+    expect(ok.maxAdvanceError).toBeLessThan(1e-6);
+    expect(ok.advanceRows).toBe(0);
+    // Characters whose advance changes in a run (as clustering would) are
+    // caught even though both drawings use runs of the same font.
+    const inner = [...r.lines[0]][1].codePointAt(0)!;
+    fakeOptions.inRunSkew.set(inner, 0.5);
+    const clustered = await verifyCanvas(r, backend);
+    expect(clustered.pass).toBe(false);
+    expect(clustered.advanceRows).toBeGreaterThan(0);
+    expect(clustered.maxAdvanceError).toBeGreaterThan(1);
+    fakeOptions.inRunSkew.clear();
     expect(ok.similarity).toBeGreaterThan(0.99);
     expect(ok.badRows).toBe(0);
     // A browser that picks the second font for everything it has, which now

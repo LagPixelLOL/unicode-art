@@ -7,6 +7,7 @@
 
 use unicode_bidi::{BidiClass, bidi_class};
 use unicode_general_category::{GeneralCategory, get_general_category};
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Ranges of scripts that require complex shaping (conjuncts, contextual
 /// joining, reordering or stacking), right-to-left scripts, and sequence
@@ -72,6 +73,29 @@ pub const EXCLUDED_BIDI: &[(BidiClass, &str, &str)] = &[
     (BidiClass::PDI, "PDI", "isolate controls"),
 ];
 
+/// Description of the grapheme cluster rule (see `joins_neighbours`).
+pub const GRAPHEME_RULE: (&str, &str) = (
+    "Grapheme_Cluster_Break",
+    "characters that join the character before or after them into one grapheme cluster (Extend, SpacingMark, Prepend, ZWJ, Hangul jamo), such as U+FF9E",
+);
+
+/// Usable characters a candidate is tested next to: a Latin letter and
+/// Hangul LV and LVT syllables (which absorb trailing jamo).
+const CLUSTER_CONTEXTS: [char; 3] = ['a', '\u{AC00}', '\u{AC01}'];
+
+/// True when `ch` forms one grapheme cluster with a usable neighbour (or with
+/// itself). Browsers lay out, select and measure such clusters as a unit,
+/// so the character would not get its own advance.
+pub fn joins_neighbours(ch: char) -> bool {
+    let joined = |a: char, b: char| {
+        let mut s = String::with_capacity(8);
+        s.push(a);
+        s.push(b);
+        s.graphemes(true).nth(1).is_none()
+    };
+    joined(ch, ch) || CLUSTER_CONTEXTS.iter().any(|&c| joined(c, ch) || joined(ch, c))
+}
+
 /// Returns true when the code point can be emitted as a standalone, single
 /// advance, left-to-right character.
 pub fn is_usable(cp: u32) -> bool {
@@ -86,12 +110,15 @@ pub fn is_usable(cp: u32) -> bool {
         return false;
     }
     let bc = bidi_class(ch);
-    !EXCLUDED_BIDI.iter().any(|&(c, _, _)| c == bc)
+    if EXCLUDED_BIDI.iter().any(|&(c, _, _)| c == bc) {
+        return false;
+    }
+    !joins_neighbours(ch)
 }
 
 /// Plain ASCII description of every exclusion rule, one rule per line, in the
-/// form `kind<TAB>key<TAB>description`. Kinds are `range`, `category` and
-/// `bidi`.
+/// form `kind<TAB>key<TAB>description`. Kinds are `range`, `category`,
+/// `bidi` and `grapheme`.
 pub fn exclusion_rules() -> String {
     let mut out = String::new();
     for &(lo, hi, label) in EXCLUDED_RANGES {
@@ -104,6 +131,7 @@ pub fn exclusion_rules() -> String {
     for &(_, key, label) in EXCLUDED_BIDI {
         out.push_str(&format!("bidi\t{key}\t{label}\n"));
     }
+    out.push_str(&format!("grapheme\t{}\t{}\n", GRAPHEME_RULE.0, GRAPHEME_RULE.1));
     out
 }
 

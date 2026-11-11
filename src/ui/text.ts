@@ -14,6 +14,7 @@ export function plural(n: number, word: string): string {
 export interface ExclusionSummary {
   categories: string;
   bidi: string;
+  grapheme: string;
   ranges: { key: string; description: string }[];
 }
 
@@ -34,6 +35,10 @@ export function summarizeExclusions(rules: readonly ExclusionRule[]): ExclusionS
   return {
     categories: join("category"),
     bidi: join("bidi"),
+    grapheme: rules
+      .filter((r) => r.kind === "grapheme")
+      .map((r) => r.description)
+      .join(" "),
     ranges: rules.filter((r) => r.kind === "range").map(({ key, description }) => ({ key, description })),
   };
 }
