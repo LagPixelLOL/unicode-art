@@ -88,6 +88,19 @@ export const PRESETS: readonly Preset[] = [
 
 export const DEFAULT_PRESET = "noto-all";
 
+/** Select value shown when the list matches no preset. */
+export const CUSTOM_PRESET = "custom";
+
+/**
+ * The preset whose fonts the list holds, in the same order, or null when the
+ * list was customized. `remotes` has the Google Fonts family of every entry,
+ * or null for fonts the user added themselves.
+ */
+export function matchPreset(remotes: readonly (string | null)[], presets: readonly Preset[] = PRESETS): string | null {
+  const hit = presets.find((p) => p.families.length === remotes.length && p.families.every((f, i) => remotes[i] === f));
+  return hit?.id ?? null;
+}
+
 const CSS_ENDPOINT = "https://fonts.googleapis.com/css2";
 const FAMILIES_PER_REQUEST = 12;
 

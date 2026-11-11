@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { SourceImage } from "../art/generate";
 import { type DomCheck, type DomMeasurements, evaluateDom } from "../art/verify";
 import type { ComputeBackend, ExclusionRule } from "../engine/backend";
-import { DEFAULT_PRESET, PRESETS, loadGoogleFamilies } from "../fonts/presets";
+import { CUSTOM_PRESET, DEFAULT_PRESET, PRESETS, loadGoogleFamilies, matchPreset } from "../fonts/presets";
 import { FontStore } from "../fonts/store";
 import { classifyFile, decodeImage, imageFromItems } from "../image/load";
 import { Badge, Progress, Section, buttonClass, inputClass } from "./common";
@@ -48,7 +48,6 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const [widthText, setWidthText] = useState("80");
   const [detailText, setDetailText] = useState("10");
   const [invert, setInvert] = useState(false);
-  const [presetId, setPresetId] = useState(DEFAULT_PRESET);
   const [fontUrl, setFontUrl] = useState("");
   const [domCheck, setDomCheck] = useState<DomCheck | null>(null);
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
@@ -57,6 +56,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const imageInput = useRef<HTMLInputElement>(null);
   const fontInput = useRef<HTMLInputElement>(null);
 
+  const presetId = useMemo(() => matchPreset(entries.map((e) => e.remote)) ?? CUSTOM_PRESET, [entries]);
   const options = readOptions(widthText, detailText, invert);
   const inputKey = `${image?.id}|${typeof options === "string" ? options : JSON.stringify(options)}|${entries.map((e) => e.id).join(",")}`;
   const stale = !!result && runKey !== null && runKey !== inputKey && !conversion.running;
@@ -295,29 +295,26 @@ export function App({ backend }: { backend: ComputeBackend }) {
           </Section>
 
           <Section title="Fonts" extra={<ExclusionInfo rules={rules} />}>
-            <div className="flex min-w-0 gap-2">
-              <select
-                aria-label="Font preset"
-                data-testid="preset-select"
-                value={presetId}
-                onChange={(e) => setPresetId(e.target.value)}
-                className={`${inputClass} min-w-0 flex-1 py-1.5 text-sm`}
-              >
-                {PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className={`${buttonClass} shrink-0`}
-                disabled={conversion.running}
-                onClick={() => applyPreset(presetId)}
-              >
-                Replace list
-              </button>
-            </div>
+            <select
+              aria-label="Font preset, choosing one replaces the list"
+              title="Choosing a preset replaces the font list"
+              data-testid="preset-select"
+              value={presetId}
+              disabled={conversion.running}
+              onChange={(e) => applyPreset(e.target.value)}
+              className={`${inputClass} w-full min-w-0 py-1.5 text-sm disabled:opacity-50`}
+            >
+              {presetId === CUSTOM_PRESET && (
+                <option value={CUSTOM_PRESET} disabled>
+                  Custom
+                </option>
+              )}
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
             <button type="button" className={`${buttonClass} mt-2 w-full`} onClick={() => fontInput.current?.click()}>
               Upload font files
             </button>

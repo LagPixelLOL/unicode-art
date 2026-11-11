@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { NOTO_FAMILIES, PRESETS, DEFAULT_PRESET, googleCssUrls, loadGoogleFamilies } from "../../src/fonts/presets";
+import {
+  DEFAULT_PRESET,
+  NOTO_FAMILIES,
+  PRESETS,
+  googleCssUrls,
+  loadGoogleFamilies,
+  matchPreset,
+} from "../../src/fonts/presets";
 import {
   download,
   groupByFamily,
@@ -213,6 +220,18 @@ describe("presets", () => {
     expect(PRESETS.find((p) => p.id === DEFAULT_PRESET)?.families).toBe(NOTO_FAMILIES);
     expect(PRESETS.find((p) => p.id === "none")?.families).toEqual([]);
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
+  });
+
+  it("recognizes lists that match a preset", () => {
+    expect(matchPreset([...NOTO_FAMILIES])).toBe("noto-all");
+    expect(matchPreset(["Noto Sans Mono"])).toBe("noto-mono");
+    expect(matchPreset([])).toBe("none");
+    // Reordered, extended, shortened or containing user fonts: custom.
+    expect(matchPreset(["Noto Sans Symbols", "Noto Sans", "Noto Sans Symbols 2", "Noto Sans Math"])).toBeNull();
+    expect(matchPreset(["Noto Sans Mono", "Noto Serif"])).toBeNull();
+    expect(matchPreset(NOTO_FAMILIES.slice(1))).toBeNull();
+    expect(matchPreset([null])).toBeNull();
+    expect(matchPreset(["Noto Serif"])).toBe("noto-serif");
   });
 
   it("batches families into CSS2 requests", () => {

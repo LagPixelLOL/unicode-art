@@ -12,6 +12,9 @@ ready to copy.
   a conversion needs them; the default preset is the entire Noto family),
   from uploaded files (TTF, OTF, TTC, WOFF, WOFF2), or from a URL of a font
   file or of a stylesheet such as `https://fonts.googleapis.com/css2?family=Inter`.
+- Choosing a preset in the dropdown replaces the font list right away. Once
+  the list is edited the dropdown shows "Custom", and it shows the preset
+  again whenever the list matches one exactly.
 - The font list is a priority list: drag entries (or use the arrow buttons)
   to reorder them. A character missing from a font is looked up in the fonts
   below it. Characters that no font has are never used.

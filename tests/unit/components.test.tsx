@@ -255,11 +255,22 @@ describe("App", () => {
     expect(screen.getByTestId("status").textContent).toMatch(/Max width/);
     fireEvent.change(screen.getByTestId("opt-width"), { target: { value: "40" } });
 
-    // Replacing the list does not convert either.
-    fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "noto-mono" } });
-    fireEvent.click(screen.getByText("Replace list"));
-    await waitFor(() => expect(screen.getAllByTestId("font-item")).toHaveLength(1));
+    // Choosing a preset replaces the list at once, without converting.
+    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
+    expect(select.value).toBe("noto-all");
+    fireEvent.change(select, { target: { value: "noto-sans" } });
+    await waitFor(() => expect(screen.getAllByTestId("font-item")).toHaveLength(4));
+    expect(select.value).toBe("noto-sans");
     expect(fetchSpy).not.toHaveBeenCalled();
+    // Editing the list makes it custom; undoing the edit finds the preset again.
+    fireEvent.click(within(screen.getAllByTestId("font-item")[0]).getByLabelText("Move down"));
+    await waitFor(() => expect(select.value).toBe("custom"));
+    expect(screen.getByRole("option", { name: "Custom" })).toBeTruthy();
+    fireEvent.click(within(screen.getAllByTestId("font-item")[1]).getByLabelText("Move up"));
+    await waitFor(() => expect(select.value).toBe("noto-sans"));
+    expect(screen.queryByRole("option", { name: "Custom" })).toBeNull();
+    fireEvent.change(select, { target: { value: "noto-mono" } });
+    await waitFor(() => expect(screen.getAllByTestId("font-item")).toHaveLength(1));
 
     // Start downloads the fonts; the failure is reported and Start comes back.
     fireEvent.click(start);
