@@ -33,6 +33,7 @@ const readyFont = (id: number, name: string): FontEntry =>
       descentEm: 0.3,
       formats: ["woff2"],
       colorGlyphs: 0,
+      bytes: 3 * 1024 * 1024 + 300 * 1024,
     },
   });
 
@@ -45,7 +46,7 @@ describe("FontList", () => {
     const items = screen.getAllByTestId("font-item");
     expect(items).toHaveLength(4);
     expect(items[0].textContent).toContain("1. Noto Sans");
-    expect(items[0].textContent).toContain("WOFF2, 2 files, variable, 1,500 chars, provides 1,200, 12 used");
+    expect(items[0].textContent).toContain("WOFF2, 2 files, 3.3 MiB, variable, 1,500 chars, provides 1,200, 12 used");
     expect(items[1].textContent).toContain("Downloaded from Google Fonts when you press Start");
     expect(items[2].textContent).toContain("Failed: no usable font file");
     expect(items[3].textContent).toContain("Downloading...");
@@ -232,6 +233,7 @@ describe("App", () => {
       </NoticeProvider>,
     );
     await waitFor(() => expect(screen.getAllByTestId("font-item").length).toBeGreaterThan(200));
+    expect(screen.getByTestId("font-size").textContent).toMatch(/^No font downloaded yet, 212 fonts not downloaded yet/);
     // Nothing is downloaded until a conversion needs it.
     expect(fetchSpy).not.toHaveBeenCalled();
     const start = screen.getByTestId("start-button") as HTMLButtonElement;
@@ -279,6 +281,7 @@ describe("App", () => {
     expect(start.textContent).toBe("Start");
     expect(screen.getAllByTestId("notice").some((n) => n.getAttribute("data-tone") === "error")).toBe(true);
     expect(screen.getAllByTestId("font-item")[0].textContent).toContain("Failed");
+    expect(screen.getByTestId("font-size").textContent).toBe("No font downloaded yet, 1 failed.");
     vi.unstubAllGlobals();
   });
 

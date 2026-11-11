@@ -17,7 +17,7 @@ import {
   nameFromUrl,
   parseFontFaces,
 } from "../../src/fonts/sources";
-import { SYNTHESIZED_SPACES, combineFaces, displayName, moveItem } from "../../src/fonts/store";
+import { SYNTHESIZED_SPACES, combineFaces, displayName, formatBytes, listSize, moveItem } from "../../src/fonts/store";
 import { inRanges, parseUnicodeRange } from "../../src/fonts/unicodeRange";
 
 const TTF = new Uint8Array([0, 1, 0, 0, 9, 9]);
@@ -315,6 +315,26 @@ describe("font list helpers", () => {
     expect([...none.codepoints]).toEqual([0x20, 0x41]);
     // Without a space glyph nothing is synthesized.
     expect([...combineFaces([face([0x41], [600], null)]).codepoints]).toEqual([0x41]);
+  });
+
+  it("formats sizes with binary units and sums the list", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(1023)).toBe("1023 B");
+    expect(formatBytes(1024)).toBe("1.0 KiB");
+    expect(formatBytes(1536)).toBe("1.5 KiB");
+    expect(formatBytes(200 * 1024)).toBe("200 KiB");
+    expect(formatBytes(5.25 * 1024 ** 2)).toBe("5.3 MiB");
+    expect(formatBytes(3 * 1024 ** 3)).toBe("3.0 GiB");
+    expect(formatBytes(2048 * 1024 ** 4)).toBe("2048 TiB");
+    expect(formatBytes(Number.NaN)).toBe("0 B");
+    const e = (status: string, bytes?: number) => ({ status, font: bytes === undefined ? null : { bytes } }) as never;
+    expect(listSize([e("ready", 100), e("ready", 50), e("pending"), e("loading"), e("failed")])).toEqual({
+      bytes: 150,
+      loaded: 2,
+      notDownloaded: 2,
+      failed: 1,
+    });
+    expect(listSize([])).toEqual({ bytes: 0, loaded: 0, notDownloaded: 0, failed: 0 });
   });
 
   it("prefers printable family names for files", () => {

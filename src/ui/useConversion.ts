@@ -103,5 +103,16 @@ export function useConversion(backend: ComputeBackend, store: FontStore) {
     setState({ kind: "cancelled" });
   }, []);
 
-  return { state, result, canvasCheck, verifyMs, lastTotalMs, start, cancel, running: state.kind === "running" };
+  /** Forgets the current result, e.g. when the fonts it was made with change. */
+  const clear = useCallback(() => {
+    current.current?.abort();
+    current.current = null;
+    setResult(null);
+    setCanvasCheck(null);
+    setVerifyMs(null);
+    setLastTotalMs(null);
+    setState({ kind: "idle" });
+  }, []);
+
+  return { state, result, canvasCheck, verifyMs, lastTotalMs, start, cancel, clear, running: state.kind === "running" };
 }

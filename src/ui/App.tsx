@@ -3,7 +3,7 @@ import type { SourceImage } from "../art/generate";
 import { type DomCheck, type DomMeasurements, evaluateDom } from "../art/verify";
 import type { ComputeBackend, ExclusionRule } from "../engine/backend";
 import { CUSTOM_PRESET, DEFAULT_PRESET, PRESETS, loadGoogleFamilies, matchPreset } from "../fonts/presets";
-import { FontStore } from "../fonts/store";
+import { FontStore, formatBytes, listSize } from "../fonts/store";
 import { classifyFile, decodeImage, imageFromItems } from "../image/load";
 import { Badge, Progress, Section, buttonClass, inputClass } from "./common";
 import { ExclusionInfo } from "./ExclusionInfo";
@@ -41,6 +41,8 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const entries = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const fontLoader = useFontLoader(store);
   const conversion = useConversion(backend, store);
+  const runningRef = useRef(false);
+  runningRef.current = conversion.running;
   const { state, result, canvasCheck, verifyMs, lastTotalMs } = conversion;
   const [rules, setRules] = useState<ExclusionRule[]>([]);
   const [image, setImage] = useState<SourceImage | null>(null);
@@ -55,6 +57,20 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const [runKey, setRunKey] = useState<string | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const fontInput = useRef<HTMLInputElement>(null);
+
+  // Any change to the font list (order, additions, removals) invalidates the
+  // output: it is rendered with these fonts and would no longer match. The
+  // list is locked while converting; a font that finishes loading during a
+  // run only marks the coming result as stale.
+  const listKey = entries.map((e) => e.id).join(",");
+  const shownList = useRef(listKey);
+  const { clear } = conversion;
+  useEffect(() => {
+    if (shownList.current === listKey) return;
+    shownList.current = listKey;
+    if (!runningRef.current) clear();
+  }, [listKey, clear]);
+  const size = listSize(entries);
 
   const presetId = useMemo(() => matchPreset(entries.map((e) => e.remote)) ?? CUSTOM_PRESET, [entries]);
   const options = readOptions(widthText, detailText, invert);
@@ -126,7 +142,10 @@ export function App({ backend }: { backend: ComputeBackend }) {
         notify("warning", `Ignored ${plural(other.length, "file")} that is neither an image nor a font.`, other.map((f) => f.name));
       }
       if (images.length > 1) notify("info", "Several images were dropped; the last one is used.");
-      if (fontFiles.length) void fontLoader.addFiles(fontFiles);
+      if (fontFiles.length) {
+        if (runningRef.current) notify("info", "The font list cannot change while converting. Cancel first, or wait.");
+        else void fontLoader.addFiles(fontFiles);
+      }
       const img = images.at(-1);
       if (img) void loadImage(img, img.name);
     };
@@ -315,7 +334,12 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 </option>
               ))}
             </select>
-            <button type="button" className={`${buttonClass} mt-2 w-full`} onClick={() => fontInput.current?.click()}>
+            <button
+              type="button"
+              className={`${buttonClass} mt-2 w-full`}
+              disabled={conversion.running}
+              onClick={() => fontInput.current?.click()}
+            >
               Upload font files
             </button>
             <input
@@ -348,7 +372,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 placeholder="https://.../font.woff2 or a CSS URL"
                 className={`${inputClass} min-w-0 flex-1 py-1.5 text-sm`}
               />
-              <button type="submit" className={`${buttonClass} shrink-0`} disabled={!fontUrl.trim()}>
+              <button type="submit" className={`${buttonClass} shrink-0`} disabled={!fontUrl.trim() || conversion.running}>
                 Add
               </button>
             </form>
@@ -376,6 +400,16 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 locked={conversion.running}
               />
             </div>
+            {entries.length > 0 && (
+              <p className="mt-2 text-xs text-zinc-400" data-testid="font-size">
+                {size.loaded > 0
+                  ? `${formatBytes(size.bytes)} in ${plural(size.loaded, "loaded font")}`
+                  : "No font downloaded yet"}
+                {size.notDownloaded > 0 && `, ${plural(size.notDownloaded, "font")} not downloaded yet (size known after download)`}
+                {size.failed > 0 && `, ${size.failed} failed`}
+                .
+              </p>
+            )}
             <p className="mt-2 text-xs text-zinc-500">
               Drag to reorder. A character missing from a font is looked up in the fonts below it; characters no font
               has are never used. Preset fonts come from Google Fonts and are downloaded when you press Start.

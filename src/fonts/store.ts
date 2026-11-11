@@ -11,6 +11,7 @@ export interface LoadedFace {
   info: FontInfoData;
   face: FontFace;
   ranges: CodeRange[] | null;
+  bytes: number;
 }
 
 export interface LoadedFont extends FontRef {
@@ -18,6 +19,8 @@ export interface LoadedFont extends FontRef {
   faces: LoadedFace[];
   formats: string[];
   colorGlyphs: number;
+  /** Size of the font files as downloaded or uploaded. */
+  bytes: number;
 }
 
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
@@ -115,6 +118,39 @@ export type RemoteLoader = (
   onProgress: (done: number, total: number) => void,
 ) => Promise<{ fonts: FontSource[]; warnings: string[] }>;
 
+/** Byte count with binary units: B, KiB, MiB, GiB, TiB. */
+export function formatBytes(n: number): string {
+  if (!(n >= 1024)) return `${Math.max(0, Math.round(n || 0))} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+export interface ListSize {
+  bytes: number;
+  loaded: number;
+  /** Fonts whose size is unknown until they are downloaded. */
+  notDownloaded: number;
+  failed: number;
+}
+
+export function listSize(entries: readonly FontEntry[]): ListSize {
+  const out: ListSize = { bytes: 0, loaded: 0, notDownloaded: 0, failed: 0 };
+  for (const e of entries) {
+    if (e.status === "ready" && e.font) {
+      out.bytes += e.font.bytes;
+      out.loaded++;
+    } else if (e.status === "failed") out.failed++;
+    else out.notDownloaded++;
+  }
+  return out;
+}
+
 export class FontStore {
   private items: FontEntry[] = [];
   private nextId = 1;
@@ -184,7 +220,7 @@ export class FontStore {
         warnings.push(`${where}: the browser rejected this font file.`);
         continue;
       }
-      faces.push({ info, face, ranges });
+      faces.push({ info, face, ranges, bytes: src.bytes.byteLength });
     }
     if (faces.length === 0) return { font: null, warnings };
 
@@ -202,6 +238,7 @@ export class FontStore {
       descentEm: -primary.info.descender / primary.info.unitsPerEm,
       formats: [...new Set(faces.map((f) => f.info.format))],
       colorGlyphs: faces.reduce((s, f) => s + f.info.colorGlyphs, 0),
+      bytes: faces.reduce((s, f) => s + f.bytes, 0),
     };
     if (codepoints.length === 0) warnings.push(`${font.name}: has no usable characters; it contributes nothing.`);
     if (font.colorGlyphs > 0) {

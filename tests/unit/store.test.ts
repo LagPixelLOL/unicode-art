@@ -71,6 +71,7 @@ describe("FontStore", () => {
     expect(font.ascentEm).toBeGreaterThan(0.8);
     expect(font.descentEm).toBeGreaterThan(0.1);
     expect(font.formats).toEqual(["ttf"]);
+    expect(font.bytes).toBe(fixture("sans.ttf").byteLength);
   });
 
   it("registers collections through their extracted face and keeps face ranges", async () => {

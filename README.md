@@ -17,7 +17,10 @@ ready to copy.
   again whenever the list matches one exactly.
 - The font list is a priority list: drag entries (or use the arrow buttons)
   to reorder them. A character missing from a font is looked up in the fonts
-  below it. Characters that no font has are never used.
+  below it. Characters that no font has are never used. The total size of the
+  loaded fonts is shown under the list (fonts of a preset count once they are
+  downloaded). Any change to the list clears the current output, since it was
+  rendered with the previous fonts.
 - Proportional (variable width) and variable (OpenType variations) fonts are
   fully supported: every glyph is placed at its exact advance.
 - Options: maximum width in cells, sampling detail, and flipping black and

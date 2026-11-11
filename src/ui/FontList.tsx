@@ -1,7 +1,7 @@
 // Font priority list with drag and drop reordering.
 
 import { useState } from "react";
-import type { FontEntry } from "../fonts/store";
+import { type FontEntry, formatBytes } from "../fonts/store";
 import { DownIcon, GripIcon, UpIcon, XIcon } from "./icons";
 import { asciiOnly, plural } from "./text";
 
@@ -28,7 +28,7 @@ function describe(e: FontEntry, provided?: number, used?: number): string {
   }
   const f = e.font!;
   return (
-    `${f.formats.join("/").toUpperCase()}${f.faces.length > 1 ? `, ${f.faces.length} files` : ""}` +
+    `${f.formats.join("/").toUpperCase()}${f.faces.length > 1 ? `, ${f.faces.length} files` : ""}, ${formatBytes(f.bytes)}` +
     `${f.isVariable ? ", variable" : ""}, ${plural(f.coverage.length, "char")}` +
     (provided !== undefined ? `, provides ${provided.toLocaleString("en-US")}` : "") +
     (used !== undefined ? `, ${used.toLocaleString("en-US")} used` : "")
