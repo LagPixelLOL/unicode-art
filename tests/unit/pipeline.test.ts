@@ -161,7 +161,7 @@ describe.skipIf(!device)("conversion pipeline", () => {
       image: handle,
       outWidth: 50,
       outHeight: 25,
-      preprocessing: toPreprocessing(options.preprocess, 120, 12),
+      preprocessing: toPreprocessing(options.preprocess, image, 12),
     });
     handle.dispose();
     expect([...p.grey]).toEqual([...direct]);

@@ -133,7 +133,10 @@ and each one works with or without the others:
    drops out. 0 turns it off.
 
 Every radius is measured in cells, converted to source pixels, so the
-effect looks the same at any image size. Blurs run on a grid coarser than
+effect looks the same at any image size. With very few cells a cell spans
+much of the image, so radii are also capped by the image's longer side
+(edge blur 1/300, local mean 1/12, tiles 1/4): outlines stay lines instead
+of blobs. Blurs run on a grid coarser than
 the image (tent weighted block averages, a separable Gaussian and linear
 interpolation back), so their cost does not grow with the radius.
 

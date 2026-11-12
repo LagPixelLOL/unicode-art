@@ -139,7 +139,7 @@ export class ArtGenerator {
         image: handle,
         outWidth: width,
         outHeight: height,
-        preprocessing: toPreprocessing(options.preprocess, image.width, options.widthCells),
+        preprocessing: toPreprocessing(options.preprocess, image, options.widthCells),
         signal,
       }),
     );
@@ -210,7 +210,7 @@ export class ArtGenerator {
         image: handle,
         outWidth: geometry.widthPx,
         outHeight: rows * geometry.cellH,
-        preprocessing: toPreprocessing(options.preprocess, image.width, geometry.widthCells),
+        preprocessing: toPreprocessing(options.preprocess, image, geometry.widthCells),
         signal,
       }),
     );

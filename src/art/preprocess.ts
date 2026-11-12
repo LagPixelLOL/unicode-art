@@ -38,16 +38,29 @@ export const CURVE_SIGMA_CELLS = 4;
  */
 export const EDGE_SIGMA_CELLS = 0.25;
 
-/** Backend parameters for an image `imageWidth` pixels wide converted to `widthCells` cells. */
-export function toPreprocessing(p: PreprocessOptions, imageWidth: number, widthCells: number): Preprocessing {
+/**
+ * Upper bounds of the radii as shares of the image's longer side. With few
+ * cells a cell spans much of the image, and radii in cells would blur it
+ * into blobs: outlines stay lines, the local mean stays local, and there
+ * are always a few tiles to equalize.
+ */
+export const MAX_EDGE_SIGMA_SHARE = 1 / 300;
+export const MAX_CURVE_SIGMA_SHARE = 1 / 12;
+export const MAX_TILE_SHARE = 1 / 4;
+
+/** Backend parameters for an image converted to `widthCells` cells. */
+export function toPreprocessing(p: PreprocessOptions, image: { width: number; height: number }, widthCells: number): Preprocessing {
+  const cell = image.width / widthCells;
+  const long = Math.max(image.width, image.height);
+  // Radii are at least a source pixel, which matters when the image is enlarged.
+  const radius = (cells: number, share: number) => Math.max(1, Math.min(cells * cell, share * long));
   return {
     invert: p.invert,
     clipLimit: 1 + p.contrast * (MAX_CLIP_LIMIT - 1),
-    tileSize: (CONTRAST_TILE_CELLS * imageWidth) / widthCells,
+    tileSize: Math.min(CONTRAST_TILE_CELLS * cell, MAX_TILE_SHARE * long),
     curve: p.contrast * MAX_CURVE,
-    curveSigma: Math.max(1, (CURVE_SIGMA_CELLS * imageWidth) / widthCells),
+    curveSigma: radius(CURVE_SIGMA_CELLS, MAX_CURVE_SIGMA_SHARE),
     edges: p.edges,
-    // At least a source pixel, which matters when the image is enlarged.
-    edgeSigma: Math.max(1, (EDGE_SIGMA_CELLS * imageWidth) / widthCells),
+    edgeSigma: radius(EDGE_SIGMA_CELLS, MAX_EDGE_SIGMA_SHARE),
   };
 }

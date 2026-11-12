@@ -9,6 +9,9 @@ import {
   EDGE_SIGMA_CELLS,
   MAX_CLIP_LIMIT,
   MAX_CURVE,
+  MAX_CURVE_SIGMA_SHARE,
+  MAX_EDGE_SIGMA_SHARE,
+  MAX_TILE_SHARE,
   toPreprocessing,
 } from "../../src/art/preprocess";
 import { DEFAULT_CH_EM, MAX_GLYPH_CELLS, computeGeometry, rowCount, selectGlyphs } from "../../src/art/geometry";
@@ -360,7 +363,8 @@ describe("ui helpers", () => {
   it("maps preprocessing to backend parameters", () => {
     expect(DEFAULT_PREPROCESS).toEqual({ invert: false, contrast: 0.5, edges: 0.5 });
     // 1600 source pixels over 80 cells: 20 source pixels per cell, at any detail.
-    expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, 1600, 80)).toEqual({
+    const image = { width: 1600, height: 1200 };
+    expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, image, 80)).toEqual({
       invert: true,
       clipLimit: 1 + 0.3 * (MAX_CLIP_LIMIT - 1),
       tileSize: CONTRAST_TILE_CELLS * 20,
@@ -370,9 +374,17 @@ describe("ui helpers", () => {
       edgeSigma: EDGE_SIGMA_CELLS * 20,
     });
     // Strength 0 turns both boosts off.
-    expect(toPreprocessing({ invert: false, contrast: 0, edges: 0 }, 1600, 80)).toMatchObject({ clipLimit: 1, curve: 0, edges: 0 });
+    expect(toPreprocessing({ invert: false, contrast: 0, edges: 0 }, image, 80)).toMatchObject({ clipLimit: 1, curve: 0, edges: 0 });
+    // With few cells, radii stop growing with the cell, so nothing turns into blobs.
+    expect(toPreprocessing(DEFAULT_PREPROCESS, image, 3)).toMatchObject({
+      tileSize: MAX_TILE_SHARE * 1600,
+      curveSigma: MAX_CURVE_SIGMA_SHARE * 1600,
+      edgeSigma: MAX_EDGE_SIGMA_SHARE * 1600,
+    });
+    // The longer side counts, here the height.
+    expect(toPreprocessing(DEFAULT_PREPROCESS, { width: 300, height: 3000 }, 1).edgeSigma).toBe(MAX_EDGE_SIGMA_SHARE * 3000);
     // Enlarged images blur at least one source pixel.
-    expect(toPreprocessing(DEFAULT_PREPROCESS, 20, 80).edgeSigma).toBe(1);
+    expect(toPreprocessing(DEFAULT_PREPROCESS, { width: 20, height: 10 }, 80)).toMatchObject({ edgeSigma: 1, curveSigma: 1 });
   });
 
   it("classifies dropped and pasted files", () => {
