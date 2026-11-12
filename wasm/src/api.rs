@@ -132,7 +132,7 @@ impl GlyphBankBuilder {
         if xs.len() != ys.len() || xs.len() != glyphs.len() || xs.len() != widths.len() {
             return Err(JsError::new("glyph cell arrays differ in length"));
         }
-        if page_w == 0 || rgba.len() % (page_w as usize * 4) != 0 {
+        if page_w == 0 || !rgba.len().is_multiple_of(page_w as usize * 4) {
             return Err(JsError::new("page buffer does not match page width"));
         }
         let page_h = (rgba.len() / (page_w as usize * 4)) as u64;
@@ -285,7 +285,7 @@ pub fn compare_rgba(
     if a.len() != b.len() {
         return Err(JsError::new("images differ in size"));
     }
-    if width == 0 || a.len() % (width as usize * 4) != 0 {
+    if width == 0 || !a.len().is_multiple_of(width as usize * 4) {
         return Err(JsError::new("image width does not match the pixel buffer"));
     }
     let c = compare::compare_rgba(a, b, width as usize, threshold, radius as usize);

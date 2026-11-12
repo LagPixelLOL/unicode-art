@@ -153,7 +153,11 @@ fn arabic_fonts_only_contribute_their_non_joining_characters() {
     ] {
         assert!(!f.codepoints.contains(&cp), "U+{cp:04X} should be excluded");
     }
-    assert!(f.codepoints.iter().all(|&cp| cp < 0x0590 || cp > 0x08FF));
+    assert!(
+        f.codepoints
+            .iter()
+            .all(|&cp| !(0x0590..=0x08FF).contains(&cp))
+    );
 }
 
 #[test]

@@ -34,7 +34,7 @@ fn blur_ignores_texture_phase_but_not_missing_ink() {
     let pattern = |shift: usize| -> Vec<u8> {
         (0..w * h)
             .map(|i| {
-                if ((i % w) + (i / w) + shift) % 2 == 0 {
+                if ((i % w) + (i / w) + shift).is_multiple_of(2) {
                     255
                 } else {
                     0

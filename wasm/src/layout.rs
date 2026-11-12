@@ -103,7 +103,7 @@ pub fn solve(input: &LayoutInput<'_>) -> Layout {
             let base = (r * width + c) * bin_count;
             for b in 0..bin_count {
                 let cost = input.costs[base + b];
-                if !(cost < INVALID_COST) {
+                if cost.is_nan() || cost >= INVALID_COST {
                     continue;
                 }
                 let Some(&g) = input.slot_glyph.get(input.slots[base + b] as usize) else {

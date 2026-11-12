@@ -28,7 +28,12 @@ impl Comparison {
 
 /// Red channel of an RGBA buffer as coverage, box blurred with `radius`.
 fn coverage(rgba: &[u8], width: usize, radius: usize) -> Vec<f32> {
-    let src: Vec<f32> = rgba.chunks_exact(4).map(|p| p[0] as f32 / 255.0).collect();
+    let src: Vec<f32> = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| p[0] as f32 / 255.0)
+        .collect();
     if radius == 0 || width == 0 {
         return src;
     }
@@ -56,7 +61,7 @@ fn coverage(rgba: &[u8], width: usize, radius: usize) -> Vec<f32> {
 pub fn compare_rgba(a: &[u8], b: &[u8], width: usize, threshold: f64, radius: usize) -> Comparison {
     assert_eq!(a.len(), b.len(), "image size mismatch");
     assert!(
-        width > 0 && a.len() % (width * 4) == 0,
+        width > 0 && a.len().is_multiple_of(width * 4),
         "width does not match the image"
     );
     let ca = coverage(a, width, radius);
