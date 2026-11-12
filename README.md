@@ -192,8 +192,7 @@ Tests are kept outside of the source trees (`src/` and `wasm/src/`).
 
 ## Development
 
-Prerequisites: Node.js, the stable Rust toolchain with the
-`wasm32-unknown-unknown` target, and `wasm-pack`.
+Prerequisites: Node.js and the stable Rust toolchain.
 
 ```
 npm install
