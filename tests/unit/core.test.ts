@@ -80,21 +80,6 @@ describe("charset", () => {
   });
 });
 
-describe("image preparation", () => {
-  it("composites over white, converts to grey and resamples", async () => {
-    const rgba = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255]);
-    const t = await backend.prepareTarget({ rgba, width: 2, height: 2, outWidth: 2, outHeight: 2, invert: false });
-    expect([...t].map((v) => +v.toFixed(3))).toEqual([1, 0, 1, 0]);
-    const inv = await backend.prepareTarget({ rgba: new Uint8ClampedArray(rgba), width: 2, height: 2, outWidth: 1, outHeight: 1, invert: true });
-    expect(inv[0]).toBeCloseTo(1 - 0.7354, 3);
-  });
-
-  it("rejects inconsistent dimensions", async () => {
-    await expect(backend.prepareTarget({ rgba: new Uint8Array(4), width: 2, height: 1, outWidth: 1, outHeight: 1, invert: false })).rejects.toThrow(/does not match/);
-    await expect(backend.prepareTarget({ rgba: new Uint8Array(4), width: 1, height: 1, outWidth: 0, outHeight: 1, invert: false })).rejects.toThrow(/positive/);
-  });
-});
-
 describe("glyph bank and layout bindings", () => {
   it("builds banks and validates cells", () => {
     expect(() => new core.GlyphBankBuilder(0)).toThrow(/positive/);

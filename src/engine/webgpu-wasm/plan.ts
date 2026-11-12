@@ -1,4 +1,4 @@
-// Pure planning helpers for the WebGPU matcher (no GPU access, unit tested).
+// Pure planning helpers for the WebGPU passes (no GPU access, unit tested).
 
 export interface ShaderParams {
   WG: number;
@@ -158,4 +158,57 @@ export class SubmissionSizer {
     // Grow at most twice as large per step, shrink immediately.
     this.size = Math.max(1, Math.min(this.max, Math.floor(Math.min(ideal, count * 2))));
   }
+}
+
+export interface BlurPlan {
+  /** Source pixels per side of a block of the coarse grid the blur runs on. */
+  step: number;
+  /** Gaussian standard deviation on the coarse grid, in blocks. */
+  sigma: number;
+  /** Taps on each side of the Gaussian kernel. */
+  radius: number;
+}
+
+/**
+ * Plans a Gaussian blur of `sigma` source pixels on a grid `step` times
+ * coarser than the image: tent weighted averages around the block centers
+ * are blurred with a separable Gaussian and interpolated linearly back to
+ * pixels. The blur is at least twice as wide as a block, so the coarse grid
+ * loses nothing visible, and the cost no longer grows with the radius. The
+ * Gaussian on the grid makes up for the spread the tent and the
+ * interpolation add, so the total spread is `sigma`.
+ */
+export function planBlur(sigma: number): BlurPlan {
+  if (!(sigma > 0) || !Number.isFinite(sigma)) throw new Error(`Invalid blur sigma ${sigma}`);
+  const step = Math.max(1, Math.floor(sigma / 2));
+  // Variance of the tent around a block center, which falls on a pixel for
+  // odd steps and between two pixels for even ones.
+  const center = step % 2 === 0 ? 0.5 : 0;
+  let sum = 0;
+  let tentVar = 0;
+  for (let d = center - step + 1; d < step; d++) {
+    const w = 1 - Math.abs(d) / step;
+    sum += w;
+    tentVar += w * d * d;
+  }
+  tentVar /= sum;
+  // Variance of linear interpolation, averaged over the phases at which
+  // pixel centers fall between block centers.
+  let interpVar = 0;
+  for (let k = 0; k < step; k++) {
+    const u = (k + 0.5) / step - 0.5;
+    const t = u - Math.floor(u);
+    interpVar += t * (1 - t) * step * step;
+  }
+  interpVar /= step;
+  const gridSigma = Math.sqrt(Math.max(1e-4, sigma * sigma - tentVar - interpVar)) / step;
+  return { step, sigma: gridSigma, radius: Math.max(1, Math.ceil(3 * gridSigma)) };
+}
+
+/** Output rows per resampling chunk, so buffers and dispatches stay within limits. */
+export function planTargetChunks(outWidth: number, limits: DeviceLimits, workgroup: number, budgetBytes = 64 * 1024 * 1024): number {
+  const cap = Math.min(limits.maxStorageBufferBindingSize, limits.maxBufferSize, budgetBytes);
+  const rows = Math.min(Math.floor(cap / (outWidth * 4)), limits.maxComputeWorkgroupsPerDimension * workgroup);
+  if (rows < 1) throw new Error("The output is too wide for the GPU buffer limits; reduce the width.");
+  return rows;
 }

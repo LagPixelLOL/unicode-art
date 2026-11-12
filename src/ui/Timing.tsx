@@ -17,7 +17,7 @@ export function timingRows(result: ArtResult, totalMs: number): TimingRow[] {
   const steps: TimingRow[] = [
     { label: "Measuring characters", ms: ms.charset, note: cached.charset ? "reused" : undefined },
     { label: "Rasterizing and packing glyphs", ms: ms.glyphs, note: cached.glyphs ? "reused" : undefined },
-    { label: "Preparing image (WASM)", ms: ms.target },
+    { label: "Preparing image (WebGPU)", ms: ms.target },
     { label: "Matching glyphs (WebGPU)", ms: result.layout.ms.score },
     { label: "Laying out rows (WASM)", ms: result.layout.ms.solve },
   ];

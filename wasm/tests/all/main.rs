@@ -5,7 +5,6 @@ mod bank;
 mod charset;
 mod compare;
 mod font;
-mod image;
 mod layout;
 mod reference;
 mod shader;

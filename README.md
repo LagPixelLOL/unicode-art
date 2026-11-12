@@ -64,9 +64,10 @@ later (see "Backends").
 3. Glyphs: every candidate is drawn natively by the browser, each with its own
    font, and packed by the Rust core into width bins (identical glyphs are
    dropped).
-4. Image: the Rust core composites the image over white, converts it to
-   luminance, resamples it in linear light and produces the ink target
-   (brightness, or darkness when flipped).
+4. Image (WebGPU): compute shaders composite the image over white and
+   convert it to grey, flip black and white when asked to (on the grey image
+   at its own resolution), then resample it in linear light to the sampling
+   grid. The result, as sRGB brightness, is the ink target.
 5. Matching (WebGPU): a compute shader scores every glyph at every start
    column of every line (squared error) and keeps the best glyph per width
    bin. Work is submitted in small, adaptively sized steps so cancelling is
@@ -173,14 +174,15 @@ src/                    web app (TypeScript, React, Tailwind)
   engine/               compute backend contract and implementations
     backend.ts          ComputeBackend interface
     registry.ts         backend selection (no fallback)
-    webgpu-wasm/        WebGPU + WebAssembly backend, WGSL matcher
+    webgpu-wasm/        WebGPU + WebAssembly backend, WGSL image
+                        preparation and matcher
   art/                  conversion pipeline, geometry, rasterizing, verification
   fonts/                presets, downloads, unicode-range, font list store
   image/                image decoding and file classification
   ui/                   React components and hooks
 wasm/                   Rust crate compiled to WebAssembly
-  src/                  font parsing, character rules, image preparation,
-                        glyph packing, layout solver, image comparison
+  src/                  font parsing, character rules, glyph packing,
+                        layout solver, image comparison
   tests/                native Rust tests
 tests/
   unit/                 Vitest tests (Node, no browser)
@@ -213,12 +215,12 @@ configuration. Any static file server works; it must serve `.wasm` files.
 No browser is needed to run the tests.
 
 - Rust (`wasm/tests/`): character rules, font parsing for every container
-  format, collections, color, variable, Arabic and shaping heavy fonts, image
-  preparation, glyph packing, the layout solver against an exhaustive search,
-  image comparison, and WGSL validation of the matcher with naga.
+  format, collections, color, variable, Arabic and shaping heavy fonts, glyph
+  packing, the layout solver against an exhaustive search, image comparison,
+  and WGSL validation of both shaders with naga.
 - Vitest (`tests/unit/`): the compiled WebAssembly core through its bindings,
-  the WGSL matcher on a native WebGPU implementation (Dawn, from the `webgpu`
-  package) against a CPU oracle, the full conversion pipeline with a fake
+  the WGSL image preparation and matcher on a native WebGPU implementation
+  (Dawn, from the `webgpu` package) against CPU oracles, the full conversion pipeline with a fake
   canvas, verification (including detecting wrong font fallback), font
   loading, presets, the font list, UI logic and React components (happy-dom),
   and a check that every user facing file is plain ASCII.

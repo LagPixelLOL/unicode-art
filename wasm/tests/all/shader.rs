@@ -1,4 +1,4 @@
-//! Validates the WGSL matcher with naga for representative parameters.
+//! Validates the WGSL shaders with naga (the matcher for representative parameters).
 
 fn specialize(src: &str, params: &[(&str, u32)]) -> String {
     src.lines()
@@ -33,4 +33,15 @@ fn matcher_shader_is_valid() {
         assert!(s.contains(&format!("const CELL_H: u32 = {h}u;")));
         validate(&s);
     }
+}
+
+#[test]
+fn target_shader_is_valid() {
+    let path = crate::repo_root().join("src/engine/webgpu-wasm/target.wgsl");
+    let src = std::fs::read_to_string(path).unwrap();
+    assert!(src.is_ascii());
+    validate(&src);
+    let module = naga::front::wgsl::parse_str(&src).unwrap();
+    let entries: Vec<_> = module.entry_points.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(entries, ["reduce", "blur_x", "blur_y", "resample"]);
 }

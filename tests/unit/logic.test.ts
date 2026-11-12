@@ -15,6 +15,7 @@ import {
   chooseWorkgroup,
   planBatches,
   planDispatches,
+  planTargetChunks,
   specializeShader,
   workgroupBytes,
 } from "../../src/engine/webgpu-wasm/plan";
@@ -145,6 +146,14 @@ describe("matcher planning", () => {
     ]);
     expect(() => planBatches(1, 100, 10, 4, { ...LIMITS, maxBufferSize: 10 })).toThrow(/too wide/);
     expect(planBatches(0, 10, 1, 1, LIMITS)).toEqual([]);
+  });
+
+  it("splits the target into chunks within buffer and dispatch limits", () => {
+    expect(planTargetChunks(800, LIMITS, 8)).toBe(Math.floor((64 << 20) / 3200));
+    expect(planTargetChunks(800, LIMITS, 8, 3200 * 5 + 10)).toBe(5);
+    expect(planTargetChunks(1, { ...LIMITS, maxComputeWorkgroupsPerDimension: 4 }, 8)).toBe(32);
+    expect(planTargetChunks(10, { ...LIMITS, maxStorageBufferBindingSize: 80 }, 8)).toBe(2);
+    expect(() => planTargetChunks(100, { ...LIMITS, maxBufferSize: 100 }, 8)).toThrow(/too wide/);
   });
 
   it("splits work into bounded dispatches that cover every row and group once", () => {
@@ -404,7 +413,7 @@ describe("ui helpers", () => {
     expect(rows.map((r) => r.label)).toEqual([
       "Measuring characters",
       "Rasterizing and packing glyphs",
-      "Preparing image (WASM)",
+      "Preparing image (WebGPU)",
       "Matching glyphs (WebGPU)",
       "Laying out rows (WASM)",
       "Other",

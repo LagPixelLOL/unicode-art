@@ -3,7 +3,7 @@ name = "unicode-art-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
-description = "WASM compute core for the unicode art generator: font parsing, image preparation, glyph packing and row layout solving"
+description = "WASM compute core for the unicode art generator: font parsing, glyph packing, row layout solving and image comparison"
 license = "MIT"
 publish = false
 

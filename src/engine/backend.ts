@@ -36,6 +36,25 @@ export interface ExclusionRule {
   description: string;
 }
 
+/**
+ * Preprocessing of the grey image, applied in this order at the source
+ * resolution, before the image is resampled. Grey values are sRGB encoded
+ * brightness in [0, 1].
+ */
+export interface Preprocessing {
+  /** Flips black and white. */
+  invert: boolean;
+  /** Exponent applied to every grey value (1 keeps them, below 1 brightens). */
+  gamma: number;
+  /**
+   * Edge boost as an unsharp mask: grey + amount * (grey - blurred grey),
+   * clamped to [0, 1]. 0 turns it off.
+   */
+  edgeAmount: number;
+  /** Standard deviation of the unsharp mask's Gaussian blur in source pixels. */
+  edgeSigma: number;
+}
+
 export interface TargetRequest {
   /** Straight alpha RGBA pixels. */
   rgba: Uint8Array | Uint8ClampedArray;
@@ -43,7 +62,21 @@ export interface TargetRequest {
   height: number;
   outWidth: number;
   outHeight: number;
-  invert: boolean;
+  preprocessing: Preprocessing;
+  signal?: AbortSignal;
+}
+
+/** Rejects requests no backend can serve; backends call it before any work. */
+export function checkTargetRequest(r: TargetRequest): void {
+  const dims = [r.width, r.height, r.outWidth, r.outHeight];
+  if (!dims.every((d) => Number.isInteger(d) && d > 0)) throw new Error("Image dimensions must be positive integers.");
+  if (r.rgba.length !== r.width * r.height * 4) throw new Error("The pixel buffer does not match the image dimensions.");
+  const p = r.preprocessing;
+  if (!(p.gamma >= 0 && Number.isFinite(p.gamma))) throw new Error("Gamma must be a finite number of at least 0.");
+  if (!(p.edgeAmount >= 0 && Number.isFinite(p.edgeAmount))) throw new Error("The edge boost amount must be a finite number of at least 0.");
+  if (p.edgeAmount > 0 && !(p.edgeSigma > 0 && Number.isFinite(p.edgeSigma))) {
+    throw new Error("The edge boost radius must be a positive finite number.");
+  }
 }
 
 /** One rasterized page of glyph cells. Coverage is read from the red channel. */
@@ -112,6 +145,11 @@ export interface ComputeBackend {
   exclusionRules(): Promise<ExclusionRule[]>;
   /** `lists[0]` has the highest priority. */
   mergeCoverage(lists: Uint32Array[]): Promise<MergedCharset>;
+  /**
+   * Turns the image into the ink target, `outWidth * outHeight` values in
+   * [0, 1]: the image is composited over white, converted to grey,
+   * preprocessed, resampled in linear light and encoded as sRGB brightness.
+   */
   prepareTarget(request: TargetRequest): Promise<Float32Array>;
   createGlyphBankBuilder(cellH: number): Promise<GlyphBankBuilder>;
   /** Scores every glyph at every position and solves the row layout. */

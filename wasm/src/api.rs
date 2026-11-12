@@ -1,6 +1,6 @@
 //! wasm-bindgen surface. Kept thin: validation and data marshalling only.
 
-use crate::{bank, charset, compare, font, image, layout};
+use crate::{bank, charset, compare, font, layout};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = FontInfo)]
@@ -102,24 +102,6 @@ pub fn merge_coverage(all: &[u32], lengths: &[u32]) -> Result<Charset, JsError> 
         at += l as usize;
     }
     Ok(Charset(charset::merge_coverage(&lists)))
-}
-
-#[wasm_bindgen(js_name = prepareTarget)]
-pub fn prepare_target(
-    rgba: &[u8],
-    width: u32,
-    height: u32,
-    out_w: u32,
-    out_h: u32,
-    invert: bool,
-) -> Result<Vec<f32>, JsError> {
-    if width == 0 || height == 0 || out_w == 0 || out_h == 0 {
-        return Err(JsError::new("image dimensions must be positive"));
-    }
-    if rgba.len() != (width as usize) * (height as usize) * 4 {
-        return Err(JsError::new("pixel buffer does not match image dimensions"));
-    }
-    Ok(image::prepare_target(rgba, width as usize, height as usize, out_w as usize, out_h as usize, invert))
 }
 
 #[wasm_bindgen(js_name = GlyphBankBuilder)]

@@ -141,7 +141,8 @@ export class ArtGenerator {
       height: image.height,
       outWidth: geometry.widthPx,
       outHeight: rows * geometry.cellH,
-      invert: options.invert,
+      preprocessing: { invert: options.invert, gamma: 1, edgeAmount: 0, edgeSigma: 1 },
+      signal,
     });
     ms.target = performance.now() - t;
     throwIfAborted(signal);

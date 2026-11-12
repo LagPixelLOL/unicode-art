@@ -1,8 +1,8 @@
 // WebGPU + WebAssembly implementation of ComputeBackend.
 //
-// WASM (Rust) handles font parsing, image preparation, glyph packing,
-// layout solving and image comparison; WebGPU scores every glyph against
-// every position.
+// WASM (Rust) handles font parsing, glyph packing, layout solving and image
+// comparison; WebGPU preprocesses and resamples the image and scores every
+// glyph against every position.
 
 import type {
   ComputeBackend,
@@ -20,6 +20,7 @@ import type {
 import { throwIfAborted } from "../backend";
 import type { Core } from "./core";
 import { GpuBank, Matcher, type MatcherTuning } from "./matcher";
+import { TargetPreparer, type TargetTuning } from "./target";
 
 function bytes(a: Uint8Array | Uint8ClampedArray): Uint8Array {
   return a instanceof Uint8Array ? a : new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
@@ -54,11 +55,12 @@ export class WebGpuWasmBackend implements ComputeBackend {
   readonly label = "WebGPU + WebAssembly";
   readonly lost: Promise<string>;
   private matcherInstance: Matcher | null = null;
+  private targetInstance: TargetPreparer | null = null;
 
   constructor(
     private readonly core: Core,
     private readonly device: GPUDevice,
-    private readonly tuning: MatcherTuning = {},
+    private readonly tuning: MatcherTuning & TargetTuning = {},
   ) {
     this.lost = device.lost.then((info) => `The GPU device was lost (${info.reason}): ${info.message}`);
   }
@@ -66,6 +68,11 @@ export class WebGpuWasmBackend implements ComputeBackend {
   private get matcher(): Matcher {
     this.matcherInstance ??= new Matcher(this.device, this.tuning);
     return this.matcherInstance;
+  }
+
+  private get target(): TargetPreparer {
+    this.targetInstance ??= new TargetPreparer(this.device, this.tuning);
+    return this.targetInstance;
   }
 
   async parseFont(data: Uint8Array): Promise<FontInfoData> {
@@ -118,7 +125,7 @@ export class WebGpuWasmBackend implements ComputeBackend {
   }
 
   async prepareTarget(r: TargetRequest): Promise<Float32Array> {
-    return this.core.prepareTarget(bytes(r.rgba), r.width, r.height, r.outWidth, r.outHeight, r.invert);
+    return this.target.prepare(r);
   }
 
   async createGlyphBankBuilder(cellH: number): Promise<GlyphBankBuilder> {

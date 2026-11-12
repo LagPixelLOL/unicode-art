@@ -8,5 +8,4 @@ pub mod bank;
 pub mod charset;
 pub mod compare;
 pub mod font;
-pub mod image;
 pub mod layout;
