@@ -1,6 +1,6 @@
 // CPU oracles for the GPU passes and helpers to build random problems.
 
-import type { TargetRequest } from "../../../src/engine/backend";
+import type { Preprocessing } from "../../../src/engine/backend";
 import type { PackedBank } from "../../../src/engine/webgpu-wasm/matcher";
 import { planBlur } from "../../../src/engine/webgpu-wasm/plan";
 import type { loadCore } from "./core";
@@ -126,8 +126,18 @@ export function contrastCurve(v: number, m: number, c: number): number {
   return v < m ? m * (v / m) ** k : 1 - (1 - m) * ((1 - v) / (1 - m)) ** k;
 }
 
+/** What the target oracle needs: the pixels themselves instead of a handle. */
+export interface OracleRequest {
+  rgba: Uint8Array | Uint8ClampedArray;
+  width: number;
+  height: number;
+  outWidth: number;
+  outHeight: number;
+  preprocessing: Preprocessing;
+}
+
 /** Grey values of the image after flip and contrast boost (see target.wgsl). */
-export function referenceGrey(r: TargetRequest): Float64Array {
+export function referenceGrey(r: OracleRequest): Float64Array {
   const { invert, contrast } = r.preprocessing;
   const grey = new Float64Array(r.width * r.height);
   for (let i = 0; i < grey.length; i++) {
@@ -221,7 +231,7 @@ function referenceTaps(n: number, m: number): { first: number; weights: number[]
 }
 
 /** CPU oracle of the whole target preparation. */
-export function referenceTarget(r: TargetRequest): Float32Array {
+export function referenceTarget(r: OracleRequest): Float32Array {
   const { edgeAmount, edgeSigma } = r.preprocessing;
   const grey = referenceGrey(r);
   const blurred = edgeAmount > 0 ? referenceBlur(grey, r.width, r.height, edgeSigma) : null;

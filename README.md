@@ -69,7 +69,8 @@ later (see "Backends").
 3. Glyphs: every candidate is drawn natively by the browser, each with its own
    font, and packed by the Rust core into width bins (identical glyphs are
    dropped).
-4. Image (WebGPU): compute shaders composite the image over white, convert
+4. Image (WebGPU): the image is uploaded to the GPU once (and kept for
+   previews and later runs); compute shaders composite it over white, convert
    it to grey, preprocess the grey image at its own resolution (see
    "Preprocessing") and resample it in linear light to the sampling grid.
    The result, as sRGB brightness, is the ink target.
@@ -93,10 +94,17 @@ text on black.
 
 ### Preprocessing
 
-Preprocessing runs on the GPU when you press Start, as part of the
-conversion (so Cancel stops it too). It works on the grey image, never on
-the colors, at the image's own resolution before it is resampled. The steps
-run in this order, and each one works with or without the others:
+Preprocessing works on the grey image, never on the colors, at the image's
+own resolution before it is resampled, on the GPU. Next to the uploaded
+image, a preview shows the preprocessed image exactly as the conversion will
+see it, and it follows every change to the settings (and to the max width,
+which sets the edge boost radius) right away. The image is uploaded to the
+GPU once and shared by previews and conversions. At most one preview is
+computed at a time, and changes made meanwhile go into the next one, so
+dragging a slider never piles up GPU work; previews also run while a
+conversion does. The conversion preprocesses again at its own resolution
+when you press Start (Cancel stops that too). The steps run in this order,
+and each one works with or without the others:
 
 1. Flip black and white: inverts the grey image, so dark areas get dense
    characters. Flipping before resampling keeps the tone of fine textures (a

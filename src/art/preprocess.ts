@@ -5,7 +5,6 @@
 // contrast boost, edge boost.
 
 import type { Preprocessing } from "../engine/backend";
-import type { Geometry } from "./geometry";
 
 export interface PreprocessOptions {
   /** Flip black and white. */
@@ -26,13 +25,13 @@ export const MAX_EDGE_AMOUNT = 8;
  */
 export const EDGE_SIGMA_CELLS = 1;
 
-export function toPreprocessing(p: PreprocessOptions, imageWidth: number, geometry: Geometry): Preprocessing {
-  const sourcePxPerSample = imageWidth / geometry.widthPx;
+/** Backend parameters for an image `imageWidth` pixels wide converted to `widthCells` cells. */
+export function toPreprocessing(p: PreprocessOptions, imageWidth: number, widthCells: number): Preprocessing {
   return {
     invert: p.invert,
     contrast: p.contrast,
     edgeAmount: p.edges * MAX_EDGE_AMOUNT,
     // At least a source pixel, which matters when the image is enlarged.
-    edgeSigma: Math.max(1, EDGE_SIGMA_CELLS * geometry.detail * sourcePxPerSample),
+    edgeSigma: Math.max(1, (EDGE_SIGMA_CELLS * imageWidth) / widthCells),
   };
 }

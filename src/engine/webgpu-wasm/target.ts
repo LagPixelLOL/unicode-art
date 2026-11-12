@@ -1,6 +1,6 @@
 // WebGPU side of the ink target preparation (see target.wgsl).
 
-import { type TargetRequest, checkTargetRequest, throwIfAborted } from "../backend";
+import { type ImageHandle, type TargetRequest, checkImage, checkTargetRequest, throwIfAborted } from "../backend";
 import { abortable } from "./matcher";
 import { type DeviceLimits, planBlur, planTargetChunks } from "./plan";
 import shaderSource from "./target.wgsl?raw";
@@ -12,6 +12,34 @@ const ROWS_WORKGROUP = 64;
 const ENTRY_POINTS = ["mean_rows", "mean_total", "reduce", "blur_x", "blur_y", "resample"] as const;
 type EntryPoint = (typeof ENTRY_POINTS)[number];
 const PARAM_BYTES = 64;
+
+/** Source pixels on the GPU. The buffer lives until disposed and no longer in use. */
+export class GpuImage implements ImageHandle {
+  private users = 0;
+  private disposed = false;
+
+  constructor(
+    private readonly buffer: GPUBuffer,
+    readonly width: number,
+    readonly height: number,
+  ) {}
+
+  acquire(): GPUBuffer {
+    if (this.disposed) throw new Error("The image was already released.");
+    this.users++;
+    return this.buffer;
+  }
+
+  release(): void {
+    if (--this.users === 0 && this.disposed) this.buffer.destroy();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.users === 0) this.buffer.destroy();
+  }
+}
 
 export interface TargetTuning {
   /** Bytes of output per resampling chunk (see planTargetChunks). */
@@ -65,17 +93,36 @@ export class TargetPreparer {
     return this.pipelines;
   }
 
-  async prepare(r: TargetRequest): Promise<Float32Array> {
-    checkTargetRequest(r);
-    const { signal } = r;
-    throwIfAborted(signal);
-    const { device } = this;
-    const srcBytes = r.width * r.height * 4;
-    if (srcBytes > Math.min(this.limits.maxStorageBufferBindingSize, this.limits.maxBufferSize)) {
+  upload(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): GpuImage {
+    checkImage(rgba, width, height);
+    const bytes = width * height * 4;
+    if (bytes > Math.min(this.limits.maxStorageBufferBindingSize, this.limits.maxBufferSize)) {
       throw new Error("The image is too large for the GPU buffer limits.");
     }
+    const buffer = this.device.createBuffer({ label: "source pixels", size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(buffer, 0, rgba.buffer, rgba.byteOffset, bytes);
+    return new GpuImage(buffer, width, height);
+  }
+
+  async prepare(req: TargetRequest): Promise<Float32Array> {
+    checkTargetRequest(req);
+    if (!(req.image instanceof GpuImage)) throw new Error("The image belongs to another backend.");
+    throwIfAborted(req.signal);
+    const image = req.image;
+    const src = image.acquire();
+    try {
+      return await this.run(req, image, src);
+    } finally {
+      image.release();
+    }
+  }
+
+  private async run(req: TargetRequest, image: GpuImage, src: GPUBuffer): Promise<Float32Array> {
+    const { signal } = req;
+    const r = { width: image.width, height: image.height, outWidth: req.outWidth, outHeight: req.outHeight };
+    const { device } = this;
     const pipelines = await abortable(this.compile(), signal);
-    const pre = r.preprocessing;
+    const pre = req.preprocessing;
     const contrast = pre.contrast > 0;
     const boost = pre.edgeAmount > 0;
     const blur = boost ? planBlur(pre.edgeSigma) : { step: 1, sigma: 1, radius: 1 };
@@ -92,14 +139,12 @@ export class TargetPreparer {
     };
     try {
       const params = buffer("target params", PARAM_BYTES, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-      const src = buffer("source pixels", srcBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
       const gridBytes = boost ? gridW * gridH * 4 : 0;
       const gridA = buffer("blur grid a", gridBytes, GPUBufferUsage.STORAGE);
       const gridB = buffer("blur grid b", gridBytes, GPUBufferUsage.STORAGE);
       const out = buffer("target", chunkBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const read = buffer("target readback", chunkBytes, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
       const stats = buffer("grey statistics", contrast ? (r.height + 1) * 4 : 0, GPUBufferUsage.STORAGE);
-      device.queue.writeBuffer(src, 0, r.rgba.buffer, r.rgba.byteOffset, srcBytes);
       const bindGroup = device.createBindGroup({
         layout: this.layout,
         entries: [params, src, gridA, gridB, out, stats].map((b, binding) => ({ binding, resource: { buffer: b } })),

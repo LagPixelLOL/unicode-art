@@ -59,22 +59,41 @@ export interface Preprocessing {
   edgeSigma: number;
 }
 
+/**
+ * An image kept by the backend (on the GPU for WebGPU), so it can be
+ * preprocessed again and again without being uploaded again.
+ */
+export interface ImageHandle {
+  readonly width: number;
+  readonly height: number;
+  /**
+   * Releases the image. Work already using it finishes normally; later
+   * requests with it are rejected.
+   */
+  dispose(): void;
+}
+
 export interface TargetRequest {
-  /** Straight alpha RGBA pixels. */
-  rgba: Uint8Array | Uint8ClampedArray;
-  width: number;
-  height: number;
+  image: ImageHandle;
   outWidth: number;
   outHeight: number;
   preprocessing: Preprocessing;
   signal?: AbortSignal;
 }
 
+function positiveInts(...dims: number[]): boolean {
+  return dims.every((d) => Number.isInteger(d) && d > 0);
+}
+
+/** Rejects images no backend can take; backends call it before uploading. */
+export function checkImage(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): void {
+  if (!positiveInts(width, height)) throw new Error("Image dimensions must be positive integers.");
+  if (rgba.length !== width * height * 4) throw new Error("The pixel buffer does not match the image dimensions.");
+}
+
 /** Rejects requests no backend can serve; backends call it before any work. */
 export function checkTargetRequest(r: TargetRequest): void {
-  const dims = [r.width, r.height, r.outWidth, r.outHeight];
-  if (!dims.every((d) => Number.isInteger(d) && d > 0)) throw new Error("Image dimensions must be positive integers.");
-  if (r.rgba.length !== r.width * r.height * 4) throw new Error("The pixel buffer does not match the image dimensions.");
+  if (!positiveInts(r.outWidth, r.outHeight)) throw new Error("Image dimensions must be positive integers.");
   const p = r.preprocessing;
   if (!(p.contrast >= 0 && p.contrast <= 1)) throw new Error("The contrast boost must be a number from 0 to 1.");
   if (!(p.edgeAmount >= 0 && Number.isFinite(p.edgeAmount))) throw new Error("The edge boost amount must be a finite number of at least 0.");
@@ -149,6 +168,8 @@ export interface ComputeBackend {
   exclusionRules(): Promise<ExclusionRule[]>;
   /** `lists[0]` has the highest priority. */
   mergeCoverage(lists: Uint32Array[]): Promise<MergedCharset>;
+  /** Keeps straight alpha RGBA pixels for any number of prepareTarget calls. */
+  uploadImage(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Promise<ImageHandle>;
   /**
    * Turns the image into the ink target, `outWidth * outHeight` values in
    * [0, 1]: the image is composited over white, converted to grey,

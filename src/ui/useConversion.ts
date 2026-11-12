@@ -117,5 +117,17 @@ export function useConversion(backend: ComputeBackend, store: FontStore) {
     setState({ kind: "idle" });
   }, []);
 
-  return { state, result, canvasCheck, verifyMs, lastTotalMs, start, cancel, clear, running: state.kind === "running" };
+  return {
+    state,
+    result,
+    canvasCheck,
+    verifyMs,
+    lastTotalMs,
+    start,
+    cancel,
+    clear,
+    running: state.kind === "running",
+    /** Shared with previews, so the image is uploaded once. */
+    generator: generator.current,
+  };
 }

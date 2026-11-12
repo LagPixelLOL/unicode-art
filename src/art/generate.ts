@@ -4,13 +4,22 @@ import type { ComputeBackend, GlyphBankHandle, LayoutResult } from "../engine/ba
 import { throwIfAborted } from "../engine/backend";
 import { rasterizeGlyphs } from "./atlas";
 import { type CharsetData, type FontRef, buildCharset, charsetKey } from "./charset";
+import { limitSize } from "../image/load";
 import { type Geometry, type GlyphSelection, computeGeometry, rowCount, selectGlyphs } from "./geometry";
+import { ImageUploads } from "./images";
 import { type PreprocessOptions, toPreprocessing } from "./preprocess";
 
 export interface ArtOptions {
   widthCells: number;
   detail: number;
   preprocess: PreprocessOptions;
+}
+
+/** The preprocessed grey image at preview size, as sRGB brightness. */
+export interface Preview {
+  width: number;
+  height: number;
+  grey: Float32Array;
 }
 
 export interface SourceImage {
@@ -97,15 +106,44 @@ const yieldToBrowser = () => new Promise<void>((r) => setTimeout(r, 0));
 export class ArtGenerator {
   private charset: CharsetData | null = null;
   private bank: BankEntry | null = null;
+  private readonly images: ImageUploads;
   /** Runs are serialized: a new run waits until a cancelled one has unwound. */
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly backend: ComputeBackend) {}
+  constructor(private readonly backend: ComputeBackend) {
+    this.images = new ImageUploads(backend);
+  }
 
   dispose(): void {
     this.bank?.handle.dispose();
     this.bank = null;
     this.charset = null;
+    this.images.dispose();
+  }
+
+  /**
+   * The image preprocessed exactly as a conversion with these options would,
+   * resampled to fit `maxSide`. Not serialized with conversions, so it stays
+   * quick while one runs; the image is uploaded once for both.
+   */
+  async preview(
+    image: SourceImage,
+    options: Pick<ArtOptions, "widthCells" | "preprocess">,
+    maxSide: number,
+    signal?: AbortSignal,
+  ): Promise<Preview> {
+    throwIfAborted(signal);
+    const { width, height } = limitSize(image.width, image.height, maxSide);
+    const grey = await this.images.use(image, (handle) =>
+      this.backend.prepareTarget({
+        image: handle,
+        outWidth: width,
+        outHeight: height,
+        preprocessing: toPreprocessing(options.preprocess, image.width, options.widthCells),
+        signal,
+      }),
+    );
+    return { width, height, grey };
   }
 
   generate(
@@ -167,15 +205,15 @@ export class ArtGenerator {
     t = performance.now();
     progress("target", 0);
     const rows = rowCount(image.width, image.height, geometry);
-    const target = await this.backend.prepareTarget({
-      rgba: image.rgba,
-      width: image.width,
-      height: image.height,
-      outWidth: geometry.widthPx,
-      outHeight: rows * geometry.cellH,
-      preprocessing: toPreprocessing(options.preprocess, image.width, geometry),
-      signal,
-    });
+    const target = await this.images.use(image, (handle) =>
+      this.backend.prepareTarget({
+        image: handle,
+        outWidth: geometry.widthPx,
+        outHeight: rows * geometry.cellH,
+        preprocessing: toPreprocessing(options.preprocess, image.width, geometry.widthCells),
+        signal,
+      }),
+    );
     ms.target = performance.now() - t;
     throwIfAborted(signal);
 

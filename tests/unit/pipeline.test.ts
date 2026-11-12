@@ -1,9 +1,10 @@
 // End to end conversion in Node: WASM core, native WebGPU (Dawn) and a fake
 // canvas standing in for browser text rendering.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type FontRef, buildCharset } from "../../src/art/charset";
 import { ArtGenerator, type SourceImage } from "../../src/art/generate";
+import { toPreprocessing } from "../../src/art/preprocess";
 import { fontSegments, verifyCanvas } from "../../src/art/verify";
 import { isAbort } from "../../src/engine/backend";
 import { WebGpuWasmBackend } from "../../src/engine/webgpu-wasm/backend";
@@ -144,6 +145,48 @@ describe.skipIf(!device)("conversion pipeline", () => {
     }
     const finer = await gen.generate(fonts, halves(120, 60), { ...OPTIONS, detail: 8 });
     expect(finer.stats.cached).toEqual({ charset: true, glyphs: false });
+    gen.dispose();
+  });
+
+  it("previews the preprocessing without waiting for a conversion, from one upload", async () => {
+    const gen = new ArtGenerator(backend);
+    const upload = vi.spyOn(backend, "uploadImage");
+    const image = ramp(120, 60);
+    const options = { widthCells: 12, preprocess: { invert: true, contrast: 0.5, edges: 0.5 } };
+    const p = await gen.preview(image, options, 50);
+    expect([p.width, p.height]).toEqual([50, 25]);
+    // Exactly what a conversion with these options would get, at preview size.
+    const handle = await backend.uploadImage(image.rgba, image.width, image.height);
+    const direct = await backend.prepareTarget({
+      image: handle,
+      outWidth: 50,
+      outHeight: 25,
+      preprocessing: toPreprocessing(options.preprocess, 120, 12),
+    });
+    handle.dispose();
+    expect([...p.grey]).toEqual([...direct]);
+    expect((await gen.preview(image, options, 1000)).width).toBe(120);
+    // A conversion blocked in matching does not hold previews back.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const layout = backend.layout.bind(backend);
+    const spy = vi.spyOn(backend, "layout").mockImplementation(async (req) => {
+      await gate;
+      return layout(req);
+    });
+    const converting = gen.generate(fonts, image, { ...OPTIONS, preprocess: options.preprocess });
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+    const during = await gen.preview(image, { ...options, preprocess: PLAIN }, 50);
+    expect(during.grey.length).toBe(50 * 25);
+    release();
+    await converting;
+    spy.mockRestore();
+    // The preview, the conversion and the direct check: two uploads in total.
+    expect(upload).toHaveBeenCalledTimes(2);
+    upload.mockRestore();
+    const pre = new AbortController();
+    pre.abort();
+    await expect(gen.preview(image, options, 50, pre.signal)).rejects.toThrow();
     gen.dispose();
   });
 

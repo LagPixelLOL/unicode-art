@@ -12,6 +12,7 @@ import type {
   GlyphBankHandle,
   GlyphPage,
   ImageComparison,
+  ImageHandle,
   LayoutRequest,
   LayoutResult,
   MergedCharset,
@@ -122,6 +123,10 @@ export class WebGpuWasmBackend implements ComputeBackend {
     } finally {
       merged.free();
     }
+  }
+
+  async uploadImage(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Promise<ImageHandle> {
+    return this.target.upload(rgba, width, height);
   }
 
   async prepareTarget(r: TargetRequest): Promise<Float32Array> {

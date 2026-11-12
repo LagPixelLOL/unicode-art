@@ -3,7 +3,7 @@
 
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ComputeBackend } from "../../src/engine/backend";
+import type { ComputeBackend, TargetRequest } from "../../src/engine/backend";
 import { googleFont } from "../../src/fonts/presets";
 import type { FontEntry } from "../../src/fonts/store";
 import { App } from "../../src/ui/App";
@@ -203,7 +203,8 @@ describe("panels", () => {
 });
 
 describe("App", () => {
-  const prepareTarget = vi.fn(async () => new Float32Array());
+  const prepareTarget = vi.fn(async (r: TargetRequest) => new Float32Array(r.outWidth * r.outHeight).fill(0.5));
+  const uploadImage = vi.fn(async (_rgba: Uint8ClampedArray, width: number, height: number) => ({ width, height, dispose() {} }));
   function stubBackend(): ComputeBackend {
     return {
       id: "stub",
@@ -217,6 +218,7 @@ describe("App", () => {
         throw new Error("unused");
       },
       prepareTarget,
+      uploadImage,
       createGlyphBankBuilder: async () => {
         throw new Error("unused");
       },
@@ -254,6 +256,9 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("notice").textContent).toContain("does not contain an image"));
 
     // An image enables Start but does not convert by itself.
+    prepareTarget.mockClear();
+    uploadImage.mockClear();
+    expect(screen.queryByTestId("preview")).toBeNull();
     const file = new File([new Uint8Array([1, 2, 3])], "photo.png", { type: "image/png" });
     fireEvent.change(screen.getByTestId("image-input"), { target: { files: [file] } });
     await waitFor(() => expect(screen.getByTestId("image-meta").textContent).toBe("photo.png, 20 x 10"));
@@ -293,8 +298,19 @@ describe("App", () => {
     expect([contrast.disabled, contrastRange.disabled, edges.disabled, edgesRange.disabled]).toEqual([false, false, false, false]);
     expect([contrast.value, edges.value]).toEqual(["1", "0"]);
     fireEvent.click(invert);
-    // Nothing is processed before Start.
-    expect(prepareTarget).not.toHaveBeenCalled();
+    // The preview shows the latest settings right away, from one upload.
+    await waitFor(() => expect(screen.getByTestId("preview-canvas")).toBeTruthy());
+    await waitFor(() =>
+      expect(prepareTarget.mock.lastCall?.[0]).toMatchObject({
+        outWidth: 20,
+        outHeight: 10,
+        preprocessing: { invert: false, contrast: 1, edgeAmount: 0 },
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("preview").getAttribute("aria-busy")).toBe("false"));
+    expect(uploadImage).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Original")).toBeTruthy();
+    expect(screen.getByText("Preprocessed")).toBeTruthy();
 
     // Choosing a preset replaces the list at once, without converting.
     const select = screen.getByTestId("preset-select") as HTMLSelectElement;

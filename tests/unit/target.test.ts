@@ -2,13 +2,13 @@
 // the CPU oracle, and the semantics of every preprocessing step.
 
 import { describe, expect, it } from "vitest";
-import { type Preprocessing, type TargetRequest, isAbort } from "../../src/engine/backend";
+import { type Preprocessing, isAbort } from "../../src/engine/backend";
 import { WebGpuWasmBackend } from "../../src/engine/webgpu-wasm/backend";
 import { planBlur } from "../../src/engine/webgpu-wasm/plan";
 import { TargetPreparer } from "../../src/engine/webgpu-wasm/target";
 import { loadCore } from "./helpers/core";
 import { requireGpuNotice } from "./helpers/gpu";
-import { contrastCurve, referenceBlur, referenceTarget, rng } from "./helpers/reference";
+import { type OracleRequest, contrastCurve, referenceBlur, referenceTarget, rng } from "./helpers/reference";
 
 const device = await requireGpuNotice();
 const PLAIN: Preprocessing = { invert: false, contrast: 0, edgeAmount: 0, edgeSigma: 1 };
@@ -29,8 +29,20 @@ function step(w: number, h: number): Uint8Array {
   return rgba;
 }
 
-function request(rgba: Uint8Array, w: number, h: number, outW: number, outH: number, pre: Partial<Preprocessing> = {}): TargetRequest {
+type Request = OracleRequest & { signal?: AbortSignal };
+
+function request(rgba: Uint8Array, w: number, h: number, outW: number, outH: number, pre: Partial<Preprocessing> = {}): Request {
   return { rgba, width: w, height: h, outWidth: outW, outHeight: outH, preprocessing: { ...PLAIN, ...pre } };
+}
+
+/** Uploads, prepares and releases the image with `preparer`. */
+async function prepareWith(preparer: TargetPreparer, r: Request): Promise<Float32Array> {
+  const image = preparer.upload(r.rgba, r.width, r.height);
+  try {
+    return await preparer.prepare({ image, outWidth: r.outWidth, outHeight: r.outHeight, preprocessing: r.preprocessing, signal: r.signal });
+  } finally {
+    image.dispose();
+  }
 }
 
 function maxDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -75,7 +87,14 @@ describe("blur plan", () => {
 
 describe.skipIf(!device)("WebGPU target preparation", () => {
   const backend = new WebGpuWasmBackend(loadCore(), device!);
-  const prepare = (r: TargetRequest) => backend.prepareTarget(r);
+  const prepare = async (r: Request) => {
+    const image = await backend.uploadImage(r.rgba, r.width, r.height);
+    try {
+      return await backend.prepareTarget({ image, outWidth: r.outWidth, outHeight: r.outHeight, preprocessing: r.preprocessing, signal: r.signal });
+    } finally {
+      image.dispose();
+    }
+  };
 
   it("composites over white, converts to grey and resamples", async () => {
     const rgba = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255]);
@@ -205,7 +224,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   it("splits tall outputs into chunks without changing the result", async () => {
     const r = request(noise(30, 90, 7), 30, 90, 13, 41, { invert: true, contrast: 0.6, edgeAmount: 1, edgeSigma: 5 });
     const whole = await prepare(r);
-    const chunked = await new TargetPreparer(device!, { chunkBytes: 13 * 4 * 6 }).prepare(r);
+    const chunked = await prepareWith(new TargetPreparer(device!, { chunkBytes: 13 * 4 * 6 }), r);
     expect(maxDiff(whole, chunked)).toBe(0);
     expect(maxDiff(whole, referenceTarget(r))).toBeLessThan(5e-4);
   });
@@ -222,7 +241,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     expect(isAbort(await running.catch((e) => e))).toBe(true);
     const tiny = new TargetPreparer(device!, { chunkBytes: 20 * 4 });
     const late = new AbortController();
-    const chunked = tiny.prepare({ ...r, signal: late.signal });
+    const chunked = prepareWith(tiny, { ...r, signal: late.signal });
     await Promise.resolve();
     late.abort();
     expect(isAbort(await chunked.catch((e) => e))).toBe(true);
@@ -246,6 +265,27 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
         get: (d, k) => (k === "limits" ? limits : typeof Reflect.get(d, k) === "function" ? Reflect.get(d, k).bind(d) : Reflect.get(d, k)),
       }),
     );
-    await expect(small.prepare(request(new Uint8Array(16), 2, 2, 1, 1))).rejects.toThrow(/too large/);
+    await expect(prepareWith(small, request(new Uint8Array(16), 2, 2, 1, 1))).rejects.toThrow(/too large/);
+    await expect(
+      backend.prepareTarget({ image: { width: 1, height: 1, dispose() {} }, outWidth: 1, outHeight: 1, preprocessing: PLAIN }),
+    ).rejects.toThrow(/another backend/);
+  });
+
+  it("keeps an uploaded image for many requests and releases it once unused", async () => {
+    const r = request(noise(24, 16, 11), 24, 16, 6, 4, { contrast: 0.4, edgeAmount: 1, edgeSigma: 2 });
+    const image = await backend.uploadImage(r.rgba, r.width, r.height);
+    expect([image.width, image.height]).toEqual([24, 16]);
+    const at = (preprocessing: Preprocessing) => backend.prepareTarget({ image, outWidth: 6, outHeight: 4, preprocessing });
+    // Changing the pixels after the upload changes nothing.
+    r.rgba.fill(0);
+    const first = await at(r.preprocessing);
+    expect(maxDiff(first, referenceTarget({ ...r, rgba: noise(24, 16, 11) }))).toBeLessThan(5e-4);
+    expect(maxDiff(await at(PLAIN), first)).toBeGreaterThan(0.01);
+    // Released while in use: the running request finishes, later ones fail.
+    const running = at(r.preprocessing);
+    image.dispose();
+    image.dispose();
+    expect(maxDiff(await running, first)).toBe(0);
+    await expect(at(r.preprocessing)).rejects.toThrow(/released/);
   });
 });

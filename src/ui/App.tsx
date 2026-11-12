@@ -12,10 +12,12 @@ import { FontList, isInternalDrag } from "./FontList";
 import { errorText, useNotify } from "./notices";
 import { DETAIL_RANGE, WIDTH_RANGE, readOptions } from "./options";
 import { OutputBox } from "./OutputBox";
+import { PreviewCanvas } from "./PreviewCanvas";
 import { asciiOnly, escapeMarkdown, plural } from "./text";
 import { Timing } from "./Timing";
 import { type RunStage, useConversion } from "./useConversion";
 import { useFontLoader } from "./useFontLoader";
+import { usePreview } from "./usePreview";
 
 const STAGE_LABEL: Record<RunStage, string> = {
   fonts: "Loading fonts",
@@ -75,6 +77,12 @@ export function App({ backend }: { backend: ComputeBackend }) {
 
   const presetId = useMemo(() => matchPreset(entries.map((e) => (e.remote ? remoteKey(e.remote) : null))) ?? CUSTOM_PRESET, [entries]);
   const options = readOptions({ width: widthText, detail: detailText, invert, contrast: contrastText, edges: edgesText });
+  const shown = usePreview(
+    conversion.generator,
+    image,
+    typeof options === "string" ? null : { widthCells: options.widthCells, preprocess: options.preprocess },
+  );
+  const processed = shown.preview && image && shown.preview.imageId === image.id ? shown.preview : null;
   const inputKey = `${image?.id}|${typeof options === "string" ? options : JSON.stringify(options)}|${entries.map((e) => e.id).join(",")}`;
   const stale = !!result && runKey !== null && runKey !== inputKey && !conversion.running;
 
@@ -321,8 +329,34 @@ export function App({ backend }: { backend: ComputeBackend }) {
               Transparent areas become white; colors become grey.
             </p>
             {image && preview && (
-              <div className="mt-3 flex min-w-0 items-center gap-3">
-                <img src={preview} alt="Selected image" className="h-16 w-16 shrink-0 rounded border border-zinc-800 bg-white object-contain" />
+              <div className="mt-3 min-w-0 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <figure className="min-w-0">
+                    {/* Black letterbox like the preview; transparent areas show white, as they are processed. */}
+                    <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded border border-zinc-800 bg-black">
+                      <img src={preview} alt="Selected image" className="max-h-full max-w-full bg-white" data-testid="original-image" />
+                    </div>
+                    <figcaption className="mt-1 text-xs text-zinc-500">Original</figcaption>
+                  </figure>
+                  <figure className="relative min-w-0" data-testid="preview" aria-busy={shown.busy}>
+                    {processed ? (
+                      <PreviewCanvas preview={processed} className="aspect-square w-full rounded border border-zinc-800 bg-black object-contain" />
+                    ) : (
+                      <div className="flex aspect-square w-full items-center justify-center rounded border border-zinc-800 bg-black text-xs text-zinc-500">
+                        {shown.error ? "" : "Preprocessing..."}
+                      </div>
+                    )}
+                    {shown.busy && processed && (
+                      <span className="pointer-events-none absolute top-1 right-1 rounded bg-zinc-900/80 px-1.5 text-xs text-zinc-400">Updating...</span>
+                    )}
+                    <figcaption className="mt-1 text-xs text-zinc-500">Preprocessed</figcaption>
+                  </figure>
+                </div>
+                {shown.error && (
+                  <p className="text-xs break-words text-red-400" data-testid="preview-error">
+                    Preview failed: {shown.error}
+                  </p>
+                )}
                 <div className="min-w-0 text-xs break-all text-zinc-400" data-testid="image-meta">
                   {image.name}, {image.width} x {image.height}
                 </div>
@@ -345,7 +379,8 @@ export function App({ backend }: { backend: ComputeBackend }) {
               <UnitField label="Contrast boost" value={contrastText} onChange={setContrastText} testId="opt-contrast" />
               <UnitField label="Edge boost" value={edgesText} onChange={setEdgesText} testId="opt-edges" />
               <p className="text-xs text-zinc-500">
-                Applied to the grey image, in this order, when you press Start; each step works on its own. Bright
+                Applied to the grey image, in this order; each step works on its own. The preview next to the image
+                shows the result as the conversion will see it. Bright
                 areas get dense characters, as the output is light text on black; flipping inverts that. Contrast
                 boost spreads tones away from the image's mean grey (1 leaves only black and white). Edge boost
                 sharpens contours so characters follow them. 0 turns either boost off.

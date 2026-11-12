@@ -351,17 +351,16 @@ describe("ui helpers", () => {
 
   it("maps preprocessing to backend parameters", () => {
     expect(DEFAULT_PREPROCESS).toEqual({ invert: false, contrast: 0.5, edges: 0.5 });
-    const geo = computeGeometry({ chEm: 0.5, ascentEm: 0.8, descentEm: 0.2, detail: 10, widthCells: 80 });
-    // 1600 source pixels over 800 samples: 2 source pixels per sample.
-    expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, 1600, geo)).toEqual({
+    // 1600 source pixels over 80 cells: 20 source pixels per cell, at any detail.
+    expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, 1600, 80)).toEqual({
       invert: true,
       contrast: 0.3,
       edgeAmount: 0.5 * MAX_EDGE_AMOUNT,
-      edgeSigma: EDGE_SIGMA_CELLS * 10 * 2,
+      edgeSigma: EDGE_SIGMA_CELLS * 20,
     });
-    expect(toPreprocessing({ invert: false, contrast: 1, edges: 0 }, 1600, geo).edgeAmount).toBe(0);
+    expect(toPreprocessing({ invert: false, contrast: 1, edges: 0 }, 1600, 80).edgeAmount).toBe(0);
     // Enlarged images blur at least one source pixel.
-    expect(toPreprocessing(DEFAULT_PREPROCESS, 20, geo).edgeSigma).toBe(1);
+    expect(toPreprocessing(DEFAULT_PREPROCESS, 20, 80).edgeSigma).toBe(1);
   });
 
   it("classifies dropped and pasted files", () => {
