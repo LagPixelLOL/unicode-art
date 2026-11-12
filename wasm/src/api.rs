@@ -59,7 +59,9 @@ impl FontInfo {
 
 #[wasm_bindgen(js_name = parseFont)]
 pub fn parse_font(data: &[u8]) -> Result<FontInfo, JsError> {
-    font::parse_font(data).map(FontInfo).map_err(|e| JsError::new(&e.to_string()))
+    font::parse_font(data)
+        .map(FontInfo)
+        .map_err(|e| JsError::new(&e.to_string()))
 }
 
 #[wasm_bindgen(js_name = exclusionRules)]
@@ -233,17 +235,28 @@ pub fn solve_layout(
     advances: &[f32],
     target: &[f32],
 ) -> Result<Layout, JsError> {
-    let (r, w, b, h) = (rows as usize, width as usize, bin_count as usize, cell_h as usize);
+    let (r, w, b, h) = (
+        rows as usize,
+        width as usize,
+        bin_count as usize,
+        cell_h as usize,
+    );
     if costs.len() != r * w * b || slots.len() != costs.len() {
         return Err(JsError::new("cost buffers do not match the grid"));
     }
     if target.len() != r * h * w {
         return Err(JsError::new("target does not match the grid"));
     }
-    if slots.iter().any(|&s| s as usize >= slot_glyph.len() && s != u32::MAX) {
+    if slots
+        .iter()
+        .any(|&s| s as usize >= slot_glyph.len() && s != u32::MAX)
+    {
         return Err(JsError::new("slot index out of range"));
     }
-    if slot_glyph.iter().any(|&g| g != bank::PAD_GLYPH && g as usize >= advances.len()) {
+    if slot_glyph
+        .iter()
+        .any(|&g| g != bank::PAD_GLYPH && g as usize >= advances.len())
+    {
         return Err(JsError::new("glyph id out of range"));
     }
     let input = layout::LayoutInput {
@@ -262,7 +275,13 @@ pub fn solve_layout(
 
 /// Returns `[pixels, absDiff, inkA, inkB, maxDiff, differing, similarity]`.
 #[wasm_bindgen(js_name = compareRgba)]
-pub fn compare_rgba(a: &[u8], b: &[u8], width: u32, threshold: f64, radius: u32) -> Result<Vec<f64>, JsError> {
+pub fn compare_rgba(
+    a: &[u8],
+    b: &[u8],
+    width: u32,
+    threshold: f64,
+    radius: u32,
+) -> Result<Vec<f64>, JsError> {
     if a.len() != b.len() {
         return Err(JsError::new("images differ in size"));
     }

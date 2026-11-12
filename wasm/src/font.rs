@@ -84,7 +84,9 @@ pub fn extract_first_face(data: &[u8]) -> Result<Vec<u8>, FontError> {
         let rec = 12 + 16 * i;
         let offset = be32(header, rec + 8).ok_or_else(bad)? as usize;
         let length = be32(header, rec + 12).ok_or_else(bad)? as usize;
-        let table = data.get(offset..offset.checked_add(length).ok_or_else(bad)?).ok_or_else(bad)?;
+        let table = data
+            .get(offset..offset.checked_add(length).ok_or_else(bad)?)
+            .ok_or_else(bad)?;
         while out.len() % 4 != 0 {
             out.push(0);
         }
@@ -137,11 +139,13 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
     let decoded;
     let sfnt: &[u8] = match format {
         FontFormat::Woff => {
-            decoded = wuff::decompress_woff1(data).map_err(|e| FontError::Decode(format!("{e:?}")))?;
+            decoded =
+                wuff::decompress_woff1(data).map_err(|e| FontError::Decode(format!("{e:?}")))?;
             &decoded
         }
         FontFormat::Woff2 => {
-            decoded = wuff::decompress_woff2(data).map_err(|e| FontError::Decode(format!("{e:?}")))?;
+            decoded =
+                wuff::decompress_woff2(data).map_err(|e| FontError::Decode(format!("{e:?}")))?;
             &decoded
         }
         _ => data,
@@ -160,9 +164,14 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
     all.dedup();
 
     let tables = face.tables();
-    let has_color = tables.colr.is_some() || tables.sbix.is_some() || tables.cbdt.is_some() || tables.svg.is_some();
+    let has_color = tables.colr.is_some()
+        || tables.sbix.is_some()
+        || tables.cbdt.is_some()
+        || tables.svg.is_some();
     let is_color = |gid: GlyphId| {
-        face.is_color_glyph(gid) || face.glyph_raster_image(gid, u16::MAX).is_some() || face.glyph_svg_image(gid).is_some()
+        face.is_color_glyph(gid)
+            || face.glyph_raster_image(gid, u16::MAX).is_some()
+            || face.glyph_svg_image(gid).is_some()
     };
     let mut color_glyphs = 0;
     let mut codepoints = Vec::with_capacity(all.len());
@@ -171,8 +180,12 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
         if !is_usable(cp) {
             continue;
         }
-        let Some(ch) = char::from_u32(cp) else { continue };
-        let Some(gid) = face.glyph_index(ch) else { continue };
+        let Some(ch) = char::from_u32(cp) else {
+            continue;
+        };
+        let Some(gid) = face.glyph_index(ch) else {
+            continue;
+        };
         if gid == GlyphId(0) {
             continue;
         }
@@ -201,6 +214,10 @@ pub fn parse_font(data: &[u8]) -> Result<ParsedFont, FontError> {
         color_glyphs,
         codepoints,
         advances,
-        standalone: if format == FontFormat::Collection { Some(extract_first_face(data)?) } else { None },
+        standalone: if format == FontFormat::Collection {
+            Some(extract_first_face(data)?)
+        } else {
+            None
+        },
     })
 }

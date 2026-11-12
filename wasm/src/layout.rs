@@ -43,12 +43,33 @@ pub struct Layout {
 }
 
 pub fn solve(input: &LayoutInput<'_>) -> Layout {
-    let LayoutInput { rows, width, bin_count, cell_h, .. } = *input;
-    assert_eq!(input.costs.len(), rows * width * bin_count, "costs length mismatch");
-    assert_eq!(input.slots.len(), input.costs.len(), "slots length mismatch");
-    assert_eq!(input.target.len(), rows * cell_h * width, "target length mismatch");
+    let LayoutInput {
+        rows,
+        width,
+        bin_count,
+        cell_h,
+        ..
+    } = *input;
+    assert_eq!(
+        input.costs.len(),
+        rows * width * bin_count,
+        "costs length mismatch"
+    );
+    assert_eq!(
+        input.slots.len(),
+        input.costs.len(),
+        "slots length mismatch"
+    );
+    assert_eq!(
+        input.target.len(),
+        rows * cell_h * width,
+        "target length mismatch"
+    );
 
-    let mut out = Layout { row_offsets: vec![0], ..Default::default() };
+    let mut out = Layout {
+        row_offsets: vec![0],
+        ..Default::default()
+    };
     let limit = width as f64 + 1e-6;
 
     let mut best = vec![f64::INFINITY; width + 1];

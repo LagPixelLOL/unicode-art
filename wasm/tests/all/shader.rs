@@ -16,10 +16,14 @@ fn specialize(src: &str, params: &[(&str, u32)]) -> String {
 }
 
 fn validate(src: &str) {
-    let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
-    naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
-        .validate(&module)
-        .unwrap_or_else(|e| panic!("{e:?}"));
+    let module =
+        naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::empty(),
+    )
+    .validate(&module)
+    .unwrap_or_else(|e| panic!("{e:?}"));
 }
 
 #[test]
@@ -42,9 +46,20 @@ fn target_shader_is_valid() {
     assert!(src.is_ascii());
     validate(&src);
     let module = naga::front::wgsl::parse_str(&src).unwrap();
-    let entries: Vec<_> = module.entry_points.iter().map(|e| e.name.as_str()).collect();
+    let entries: Vec<_> = module
+        .entry_points
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
     assert_eq!(
         entries,
-        ["mean_rows", "mean_total", "reduce", "blur_x", "blur_y", "resample"]
+        [
+            "mean_rows",
+            "mean_total",
+            "reduce",
+            "blur_x",
+            "blur_y",
+            "resample"
+        ]
     );
 }

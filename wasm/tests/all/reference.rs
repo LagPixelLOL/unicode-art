@@ -11,7 +11,15 @@ pub struct Scores {
 }
 
 /// Squared error of `slot` placed at column `s` of row `r`.
-pub fn slot_cost(bank: &GlyphBank, target: &[f32], width: usize, r: usize, s: usize, slot: u32, w: u32) -> f32 {
+pub fn slot_cost(
+    bank: &GlyphBank,
+    target: &[f32],
+    width: usize,
+    r: usize,
+    s: usize,
+    slot: u32,
+    w: u32,
+) -> f32 {
     let h = bank.cell_h as usize;
     let mut sum = 0f32;
     for y in 0..h {

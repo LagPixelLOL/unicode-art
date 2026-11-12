@@ -11,7 +11,10 @@ fn parses_truetype_and_filters_coverage() {
     assert!(!f.is_variable);
     assert!(f.glyph_count > 95);
     assert_eq!(f.codepoints.len(), f.advances.len());
-    assert!(f.codepoints.windows(2).all(|w| w[0] < w[1]), "sorted and unique");
+    assert!(
+        f.codepoints.windows(2).all(|w| w[0] < w[1]),
+        "sorted and unique"
+    );
     for cp in [0x20, 0x41, 0x7E, 0xE9] {
         assert!(f.codepoints.contains(&cp), "U+{cp:04X} missing");
     }
@@ -23,18 +26,27 @@ fn parses_truetype_and_filters_coverage() {
     assert!(!f.codepoints.contains(&0x4E00));
     let adv = |cp: u32| f.advances[f.codepoints.iter().position(|&c| c == cp).unwrap()];
     assert_eq!(adv(0x20), 569);
-    assert!(adv(0x57) > adv(0x69), "W is wider than i in a proportional font");
+    assert!(
+        adv(0x57) > adv(0x69),
+        "W is wider than i in a proportional font"
+    );
 }
 
 #[test]
 fn woff_and_woff2_decode_to_the_same_font() {
     let ttf = parse_font(&fixture("sans.ttf")).unwrap();
-    for (name, format) in [("sans.woff", FontFormat::Woff), ("sans.woff2", FontFormat::Woff2)] {
+    for (name, format) in [
+        ("sans.woff", FontFormat::Woff),
+        ("sans.woff2", FontFormat::Woff2),
+    ] {
         let f = parse_font(&fixture(name)).unwrap();
         assert_eq!(f.format, format);
         assert_eq!(f.codepoints, ttf.codepoints, "{name}");
         assert_eq!(f.advances, ttf.advances, "{name}");
-        assert_eq!((f.ascender, f.descender, f.units_per_em), (ttf.ascender, ttf.descender, ttf.units_per_em));
+        assert_eq!(
+            (f.ascender, f.descender, f.units_per_em),
+            (ttf.ascender, ttf.descender, ttf.units_per_em)
+        );
     }
 }
 
@@ -45,15 +57,26 @@ fn collections_use_the_first_face() {
     assert_eq!(f.format, FontFormat::Collection);
     assert_eq!(f.family, "Fixture Mono");
     assert_eq!(f.codepoints, mono.codepoints);
-    assert!(mono.advances.iter().all(|&a| a == mono.advances[0]), "monospace");
+    assert!(
+        mono.advances.iter().all(|&a| a == mono.advances[0]),
+        "monospace"
+    );
     // The extracted face parses to the same font and is self contained.
     let standalone = f.standalone.expect("collections are extracted");
     assert_eq!(&standalone[0..4], &[0, 1, 0, 0]);
     let again = parse_font(&standalone).unwrap();
     assert_eq!(again.format, FontFormat::TrueType);
-    assert_eq!((again.codepoints, again.advances), (mono.codepoints, mono.advances));
+    assert_eq!(
+        (again.codepoints, again.advances),
+        (mono.codepoints, mono.advances)
+    );
     assert!(again.standalone.is_none());
-    assert!(parse_font(&fixture("sans.ttf")).unwrap().standalone.is_none());
+    assert!(
+        parse_font(&fixture("sans.ttf"))
+            .unwrap()
+            .standalone
+            .is_none()
+    );
 }
 
 #[test]
@@ -61,8 +84,14 @@ fn malformed_collections_are_rejected() {
     use unicode_art_core::font::extract_first_face;
     let ttc = fixture("collection.ttc");
     assert!(extract_first_face(&ttc[..20]).is_err());
-    assert!(extract_first_face(b"ttcf\0\x02\0\0\0\0\0\0").is_err(), "no fonts");
-    assert!(extract_first_face(&fixture("sans.ttf")).is_err(), "not a collection");
+    assert!(
+        extract_first_face(b"ttcf\0\x02\0\0\0\0\0\0").is_err(),
+        "no fonts"
+    );
+    assert!(
+        extract_first_face(&fixture("sans.ttf")).is_err(),
+        "not a collection"
+    );
     let mut broken = ttc.clone();
     // Point the first table far beyond the end of the file.
     let dir = u32::from_be_bytes(broken[12..16].try_into().unwrap()) as usize;
@@ -73,15 +102,31 @@ fn malformed_collections_are_rejected() {
 #[test]
 fn rejects_garbage() {
     assert_eq!(detect_format(b"abc"), None);
-    assert_eq!(parse_font(b"not a font").unwrap_err(), FontError::UnknownFormat);
+    assert_eq!(
+        parse_font(b"not a font").unwrap_err(),
+        FontError::UnknownFormat
+    );
     let ttf = fixture("sans.ttf");
     assert!(matches!(parse_font(&ttf[..12]), Err(FontError::Parse(_))));
     let woff2 = fixture("sans.woff2");
-    assert!(matches!(parse_font(&woff2[..64]), Err(FontError::Decode(_))));
-    for e in [FontError::UnknownFormat, FontError::Decode("x".into()), FontError::Parse("y".into())] {
+    assert!(matches!(
+        parse_font(&woff2[..64]),
+        Err(FontError::Decode(_))
+    ));
+    for e in [
+        FontError::UnknownFormat,
+        FontError::Decode("x".into()),
+        FontError::Parse("y".into()),
+    ] {
         assert!(!e.to_string().is_empty());
     }
-    for f in [FontFormat::TrueType, FontFormat::OpenType, FontFormat::Collection, FontFormat::Woff, FontFormat::Woff2] {
+    for f in [
+        FontFormat::TrueType,
+        FontFormat::OpenType,
+        FontFormat::Collection,
+        FontFormat::Woff,
+        FontFormat::Woff2,
+    ] {
         assert!(!f.as_str().is_empty());
     }
 }
@@ -103,7 +148,9 @@ fn arabic_fonts_only_contribute_their_non_joining_characters() {
     }
     // Joining letters, harakat, Arabic-Indic digits, joiners and the lam-alef
     // presentation ligature are all excluded although the font maps them.
-    for cp in [0x0627, 0x0628, 0x0644, 0x0645, 0x064E, 0x0660, 0x0662, 0x200C, 0x200D, 0xFEFB] {
+    for cp in [
+        0x0627, 0x0628, 0x0644, 0x0645, 0x064E, 0x0660, 0x0662, 0x200C, 0x200D, 0xFEFB,
+    ] {
         assert!(!f.codepoints.contains(&cp), "U+{cp:04X} should be excluded");
     }
     assert!(f.codepoints.iter().all(|&cp| cp < 0x0590 || cp > 0x08FF));
@@ -119,7 +166,8 @@ fn shaping_features_do_not_change_coverage() {
     }
     let adv = |cp: u32| f.advances[f.codepoints.iter().position(|&c| c == cp).unwrap()];
     let plain = parse_font(&fixture("sans.ttf")).unwrap();
-    let plain_adv = |cp: u32| plain.advances[plain.codepoints.iter().position(|&c| c == cp).unwrap()];
+    let plain_adv =
+        |cp: u32| plain.advances[plain.codepoints.iter().position(|&c| c == cp).unwrap()];
     // Kerning lives in GPOS and never alters the advances used for layout.
     assert_eq!(adv(0x41), plain_adv(0x41));
     assert_eq!(adv(0x56), plain_adv(0x56));

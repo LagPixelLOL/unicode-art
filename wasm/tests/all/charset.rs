@@ -1,4 +1,6 @@
-use unicode_art_core::charset::{EXCLUDED_RANGES, exclusion_rules, is_usable, joins_neighbours, merge_coverage};
+use unicode_art_core::charset::{
+    EXCLUDED_RANGES, exclusion_rules, is_usable, joins_neighbours, merge_coverage,
+};
 
 #[test]
 fn accepts_plain_left_to_right_characters() {
@@ -70,8 +72,14 @@ fn rejects_unusable_characters() {
         (0x10900, "phoenician (right-to-left)"),
         (0x1E900, "adlam (right-to-left, joining)"),
         (0x11000, "brahmi sign"),
-        (0xFF9E, "halfwidth katakana voiced sound mark (grapheme extend)"),
-        (0xFF9F, "halfwidth katakana semi-voiced sound mark (grapheme extend)"),
+        (
+            0xFF9E,
+            "halfwidth katakana voiced sound mark (grapheme extend)",
+        ),
+        (
+            0xFF9F,
+            "halfwidth katakana semi-voiced sound mark (grapheme extend)",
+        ),
         (0x0E33, "thai sara am (spacing mark)"),
         (0x0EB3, "lao vowel sign am (spacing mark)"),
         (0x302E, "hangul single dot tone mark"),
@@ -86,11 +94,19 @@ fn rejects_unusable_characters() {
 #[test]
 fn grapheme_cluster_members_are_rejected() {
     for cp in [0xFF9E, 0x0E33, 0x0301, 0x200D, 0x1F3FB, 0xE0020] {
-        assert!(joins_neighbours(char::from_u32(cp).unwrap()), "U+{cp:04X} joins");
+        assert!(
+            joins_neighbours(char::from_u32(cp).unwrap()),
+            "U+{cp:04X} joins"
+        );
     }
     // Standalone characters, including Hangul syllables and emoji.
-    for cp in [0x41, 0x20, 0xAC00, 0xD7A3, 0x4E00, 0xFF9D, 0x30AC, 0x1F600, 0x2588, 0x0E01] {
-        assert!(!joins_neighbours(char::from_u32(cp).unwrap()), "U+{cp:04X} stands alone");
+    for cp in [
+        0x41, 0x20, 0xAC00, 0xD7A3, 0x4E00, 0xFF9D, 0x30AC, 0x1F600, 0x2588, 0x0E01,
+    ] {
+        assert!(
+            !joins_neighbours(char::from_u32(cp).unwrap()),
+            "U+{cp:04X} stands alone"
+        );
     }
     // Every printable ASCII character stays usable.
     assert!((0x20..0x7F).all(is_usable));
@@ -111,10 +127,26 @@ fn exclusion_rules_are_ascii_and_complete() {
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines.iter().all(|l| l.split('\t').count() == 3), "{text}");
     for &(lo, hi, _) in EXCLUDED_RANGES {
-        let key = if lo == hi { format!("U+{lo:04X}") } else { format!("U+{lo:04X}-U+{hi:04X}") };
-        assert!(lines.iter().any(|l| l.starts_with(&format!("range\t{key}\t"))), "{key}");
+        let key = if lo == hi {
+            format!("U+{lo:04X}")
+        } else {
+            format!("U+{lo:04X}-U+{hi:04X}")
+        };
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with(&format!("range\t{key}\t"))),
+            "{key}"
+        );
     }
-    for key in ["category\tMn\t", "category\tCc\t", "category\tCf\t", "bidi\tR\t", "bidi\tAL\t", "grapheme\tGrapheme_Cluster_Break\t"] {
+    for key in [
+        "category\tMn\t",
+        "category\tCc\t",
+        "category\tCf\t",
+        "bidi\tR\t",
+        "bidi\tAL\t",
+        "grapheme\tGrapheme_Cluster_Break\t",
+    ] {
         assert!(lines.iter().any(|l| l.starts_with(key)), "{key}");
     }
 }
@@ -124,7 +156,10 @@ fn readme_documents_every_rule() {
     let readme = std::fs::read_to_string(crate::repo_root().join("README.md")).expect("README.md");
     for line in exclusion_rules().lines() {
         let key = line.split('\t').nth(1).unwrap();
-        assert!(readme.contains(&format!("`{key}`")), "README.md does not list `{key}`");
+        assert!(
+            readme.contains(&format!("`{key}`")),
+            "README.md does not list `{key}`"
+        );
     }
 }
 

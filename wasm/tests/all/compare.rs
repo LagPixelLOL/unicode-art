@@ -32,7 +32,15 @@ fn blur_ignores_texture_phase_but_not_missing_ink() {
     // A one pixel checkerboard and the same pattern shifted by one pixel.
     let (w, h) = (8, 8);
     let pattern = |shift: usize| -> Vec<u8> {
-        (0..w * h).map(|i| if ((i % w) + (i / w) + shift) % 2 == 0 { 255 } else { 0 }).collect()
+        (0..w * h)
+            .map(|i| {
+                if ((i % w) + (i / w) + shift) % 2 == 0 {
+                    255
+                } else {
+                    0
+                }
+            })
+            .collect()
     };
     let a = grey(&pattern(0));
     let b = grey(&pattern(1));

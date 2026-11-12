@@ -18,7 +18,11 @@ impl Comparison {
     /// 1 when both images carry identical ink, 0 when they share none.
     pub fn similarity(&self) -> f64 {
         let ink = self.ink_a.max(self.ink_b);
-        if ink <= 0.0 { 1.0 } else { (1.0 - self.abs_diff / ink).max(0.0) }
+        if ink <= 0.0 {
+            1.0
+        } else {
+            (1.0 - self.abs_diff / ink).max(0.0)
+        }
     }
 }
 
@@ -51,10 +55,16 @@ fn coverage(rgba: &[u8], width: usize, radius: usize) -> Vec<f32> {
 /// first, so sub-pixel placement differences of fine textures do not count.
 pub fn compare_rgba(a: &[u8], b: &[u8], width: usize, threshold: f64, radius: usize) -> Comparison {
     assert_eq!(a.len(), b.len(), "image size mismatch");
-    assert!(width > 0 && a.len() % (width * 4) == 0, "width does not match the image");
+    assert!(
+        width > 0 && a.len() % (width * 4) == 0,
+        "width does not match the image"
+    );
     let ca = coverage(a, width, radius);
     let cb = coverage(b, width, radius);
-    let mut c = Comparison { pixels: ca.len() as u64, ..Default::default() };
+    let mut c = Comparison {
+        pixels: ca.len() as u64,
+        ..Default::default()
+    };
     for (&va, &vb) in ca.iter().zip(&cb) {
         let (va, vb) = (va as f64, vb as f64);
         let d = (va - vb).abs();

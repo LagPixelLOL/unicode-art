@@ -13,19 +13,39 @@ use unicode_segmentation::UnicodeSegmentation;
 /// joining, reordering or stacking), right-to-left scripts, and sequence
 /// forming characters (regional indicators, emoji modifiers, tags).
 pub const EXCLUDED_RANGES: &[(u32, u32, &str)] = &[
-    (0x0590, 0x08FF, "Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic, Arabic ext"),
+    (
+        0x0590,
+        0x08FF,
+        "Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic, Arabic ext",
+    ),
     (0x0900, 0x0DFF, "Indic scripts, Devanagari to Sinhala"),
     (0x0F00, 0x0FFF, "Tibetan"),
     (0x1000, 0x109F, "Myanmar"),
     (0x1100, 0x11FF, "Hangul Jamo (conjoining)"),
     (0x1700, 0x18AF, "Philippine scripts, Khmer, Mongolian"),
-    (0x1900, 0x1AFF, "Limbu to Tai Tham, combining diacritics ext"),
+    (
+        0x1900,
+        0x1AFF,
+        "Limbu to Tai Tham, combining diacritics ext",
+    ),
     (0x1B00, 0x1C4F, "Balinese, Sundanese, Batak, Lepcha"),
     (0x1CD0, 0x1CFF, "Vedic extensions"),
     (0x3164, 0x3164, "Hangul filler (default ignorable)"),
-    (0xA800, 0xA8FF, "Syloti Nagri, Phags-pa, Saurashtra, Devanagari ext"),
-    (0xA900, 0xA9FF, "Kayah Li, Rejang, Hangul Jamo ext A, Javanese"),
-    (0xAA00, 0xAAFF, "Cham, Myanmar ext, Tai Viet, Meetei Mayek ext"),
+    (
+        0xA800,
+        0xA8FF,
+        "Syloti Nagri, Phags-pa, Saurashtra, Devanagari ext",
+    ),
+    (
+        0xA900,
+        0xA9FF,
+        "Kayah Li, Rejang, Hangul Jamo ext A, Javanese",
+    ),
+    (
+        0xAA00,
+        0xAAFF,
+        "Cham, Myanmar ext, Tai Viet, Meetei Mayek ext",
+    ),
     (0xABC0, 0xABFF, "Meetei Mayek"),
     (0xD7B0, 0xD7FF, "Hangul Jamo ext B"),
     (0xFB1D, 0xFDFF, "Hebrew and Arabic presentation forms"),
@@ -34,8 +54,16 @@ pub const EXCLUDED_RANGES: &[(u32, u32, &str)] = &[
     (0xFFA0, 0xFFA0, "Halfwidth Hangul filler"),
     (0x10800, 0x10FFF, "Historic right-to-left scripts"),
     (0x11000, 0x11FFF, "Brahmi and other historic Indic scripts"),
-    (0x1E800, 0x1EFFF, "Mende Kikakui, Adlam, Arabic math and other RTL"),
-    (0x1F1E6, 0x1F1FF, "Regional indicators (form flags in pairs)"),
+    (
+        0x1E800,
+        0x1EFFF,
+        "Mende Kikakui, Adlam, Arabic math and other RTL",
+    ),
+    (
+        0x1F1E6,
+        0x1F1FF,
+        "Regional indicators (form flags in pairs)",
+    ),
     (0x1F3FB, 0x1F3FF, "Emoji skin tone modifiers"),
     (0xE0000, 0xE0FFF, "Tags and variation selectors supplement"),
 ];
@@ -43,14 +71,34 @@ pub const EXCLUDED_RANGES: &[(u32, u32, &str)] = &[
 /// General categories that are never usable, with a short description.
 pub const EXCLUDED_CATEGORIES: &[(GeneralCategory, &str, &str)] = &[
     (GeneralCategory::Control, "Cc", "control characters"),
-    (GeneralCategory::Format, "Cf", "format characters (zero width, bidi controls, joiners)"),
+    (
+        GeneralCategory::Format,
+        "Cf",
+        "format characters (zero width, bidi controls, joiners)",
+    ),
     (GeneralCategory::Surrogate, "Cs", "surrogates"),
-    (GeneralCategory::Unassigned, "Cn", "unassigned code points and noncharacters"),
-    (GeneralCategory::NonspacingMark, "Mn", "nonspacing combining marks"),
-    (GeneralCategory::SpacingMark, "Mc", "spacing combining marks"),
+    (
+        GeneralCategory::Unassigned,
+        "Cn",
+        "unassigned code points and noncharacters",
+    ),
+    (
+        GeneralCategory::NonspacingMark,
+        "Mn",
+        "nonspacing combining marks",
+    ),
+    (
+        GeneralCategory::SpacingMark,
+        "Mc",
+        "spacing combining marks",
+    ),
     (GeneralCategory::EnclosingMark, "Me", "enclosing marks"),
     (GeneralCategory::LineSeparator, "Zl", "line separator"),
-    (GeneralCategory::ParagraphSeparator, "Zp", "paragraph separator"),
+    (
+        GeneralCategory::ParagraphSeparator,
+        "Zp",
+        "paragraph separator",
+    ),
 ];
 
 /// Bidi classes that are never usable, with a short description.
@@ -93,7 +141,10 @@ pub fn joins_neighbours(ch: char) -> bool {
         s.push(b);
         s.graphemes(true).nth(1).is_none()
     };
-    joined(ch, ch) || CLUSTER_CONTEXTS.iter().any(|&c| joined(c, ch) || joined(ch, c))
+    joined(ch, ch)
+        || CLUSTER_CONTEXTS
+            .iter()
+            .any(|&c| joined(c, ch) || joined(ch, c))
 }
 
 /// Returns true when the code point can be emitted as a standalone, single
@@ -102,7 +153,10 @@ pub fn is_usable(cp: u32) -> bool {
     let Some(ch) = char::from_u32(cp) else {
         return false;
     };
-    if EXCLUDED_RANGES.iter().any(|&(lo, hi, _)| cp >= lo && cp <= hi) {
+    if EXCLUDED_RANGES
+        .iter()
+        .any(|&(lo, hi, _)| cp >= lo && cp <= hi)
+    {
         return false;
     }
     let gc = get_general_category(ch);
@@ -122,7 +176,11 @@ pub fn is_usable(cp: u32) -> bool {
 pub fn exclusion_rules() -> String {
     let mut out = String::new();
     for &(lo, hi, label) in EXCLUDED_RANGES {
-        let key = if lo == hi { format!("U+{lo:04X}") } else { format!("U+{lo:04X}-U+{hi:04X}") };
+        let key = if lo == hi {
+            format!("U+{lo:04X}")
+        } else {
+            format!("U+{lo:04X}-U+{hi:04X}")
+        };
         out.push_str(&format!("range\t{key}\t{label}\n"));
     }
     for &(_, key, label) in EXCLUDED_CATEGORIES {
@@ -131,7 +189,10 @@ pub fn exclusion_rules() -> String {
     for &(_, key, label) in EXCLUDED_BIDI {
         out.push_str(&format!("bidi\t{key}\t{label}\n"));
     }
-    out.push_str(&format!("grapheme\t{}\t{}\n", GRAPHEME_RULE.0, GRAPHEME_RULE.1));
+    out.push_str(&format!(
+        "grapheme\t{}\t{}\n",
+        GRAPHEME_RULE.0, GRAPHEME_RULE.1
+    ));
     out
 }
 

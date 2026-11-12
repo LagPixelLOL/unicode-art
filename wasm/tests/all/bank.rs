@@ -2,7 +2,11 @@ use unicode_art_core::bank::{GlyphBankBuilder, PAD_GLYPH, PAD_NORM};
 
 /// Builds an RGBA page where glyph `g` occupies a cell filled with
 /// `pattern(g, x, y)`.
-pub fn page(cells: &[(u32, u32)], cell_h: u32, pattern: impl Fn(u32, u32, u32) -> u8) -> (Vec<u8>, u32, Vec<u32>) {
+pub fn page(
+    cells: &[(u32, u32)],
+    cell_h: u32,
+    pattern: impl Fn(u32, u32, u32) -> u8,
+) -> (Vec<u8>, u32, Vec<u32>) {
     let page_w: u32 = cells.iter().map(|&(_, w)| w + 1).sum();
     let mut rgba = vec![7u8; (page_w * cell_h * 4) as usize];
     let mut xs = Vec::new();
@@ -40,10 +44,21 @@ fn packs_bins_by_width_with_padding() {
     assert_eq!(bank.max_width(), 3);
     assert_eq!(bank.max_group_count(), 2);
     let (b2, b3) = (bank.bins[0], bank.bins[1]);
-    assert_eq!((b2.width, b2.group_offset, b2.group_count, b2.data_offset), (2, 0, 2, 0));
-    assert_eq!((b3.width, b3.group_offset, b3.group_count, b3.data_offset), (3, 2, 1, 2 * 2 * 2));
+    assert_eq!(
+        (b2.width, b2.group_offset, b2.group_count, b2.data_offset),
+        (2, 0, 2, 0)
+    );
+    assert_eq!(
+        (b3.width, b3.group_offset, b3.group_count, b3.data_offset),
+        (3, 2, 1, 2 * 2 * 2)
+    );
     assert_eq!(bank.data.len(), 2 * 4 + 6);
-    assert_eq!(bank.slot_glyph, vec![0, 2, 3, 5, 6, PAD_GLYPH, PAD_GLYPH, PAD_GLYPH, 1, 4, PAD_GLYPH, PAD_GLYPH]);
+    assert_eq!(
+        bank.slot_glyph,
+        vec![
+            0, 2, 3, 5, 6, PAD_GLYPH, PAD_GLYPH, PAD_GLYPH, 1, 4, PAD_GLYPH, PAD_GLYPH
+        ]
+    );
     assert_eq!(bank.norms.len(), bank.slot_glyph.len());
 
     for (slot, &g) in bank.slot_glyph.iter().enumerate() {
@@ -79,8 +94,17 @@ fn identical_glyphs_of_equal_width_are_deduplicated() {
     b.add_page(&rgba, page_w, &xs, &[0; 4], &glyphs, &widths);
     let bank = b.build();
     assert_eq!(bank.duplicates, 1);
-    let real: Vec<u32> = bank.slot_glyph.iter().copied().filter(|&g| g != PAD_GLYPH).collect();
-    assert_eq!(real, vec![0, 1, 3], "the lowest glyph id of a duplicate set survives");
+    let real: Vec<u32> = bank
+        .slot_glyph
+        .iter()
+        .copied()
+        .filter(|&g| g != PAD_GLYPH)
+        .collect();
+    assert_eq!(
+        real,
+        vec![0, 1, 3],
+        "the lowest glyph id of a duplicate set survives"
+    );
 }
 
 #[test]

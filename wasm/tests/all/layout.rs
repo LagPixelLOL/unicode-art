@@ -35,10 +35,22 @@ fn target(rows: usize, width: usize, f: impl Fn(usize, usize) -> f32) -> Vec<f32
 fn brute_force(bank: &GlyphBank, t: &[f32], width: usize, r: usize, advances: &[f32]) -> f64 {
     let tail = |c: usize| -> f64 {
         (0..H as usize)
-            .map(|y| (c..width).map(|x| (t[(r * H as usize + y) * width + x] as f64).powi(2)).sum::<f64>())
+            .map(|y| {
+                (c..width)
+                    .map(|x| (t[(r * H as usize + y) * width + x] as f64).powi(2))
+                    .sum::<f64>()
+            })
             .sum()
     };
-    fn go(bank: &GlyphBank, t: &[f32], width: usize, r: usize, adv: &[f32], c: usize, tail: &dyn Fn(usize) -> f64) -> f64 {
+    fn go(
+        bank: &GlyphBank,
+        t: &[f32],
+        width: usize,
+        r: usize,
+        adv: &[f32],
+        c: usize,
+        tail: &dyn Fn(usize) -> f64,
+    ) -> f64 {
         let mut best = tail(c);
         for (slot, &g) in bank.slot_glyph.iter().enumerate() {
             if g == u32::MAX {
@@ -48,7 +60,15 @@ fn brute_force(bank: &GlyphBank, t: &[f32], width: usize, r: usize, advances: &[
             if c + a > width {
                 continue;
             }
-            let w = bank.bins.iter().find(|b| (slot as u32 / 4) >= b.group_offset && (slot as u32 / 4) < b.group_offset + b.group_count).unwrap().width;
+            let w = bank
+                .bins
+                .iter()
+                .find(|b| {
+                    (slot as u32 / 4) >= b.group_offset
+                        && (slot as u32 / 4) < b.group_offset + b.group_count
+                })
+                .unwrap()
+                .width;
             let cost = slot_cost(bank, t, width, r, c, slot as u32, w) as f64;
             best = best.min(cost + go(bank, t, width, r, adv, c + a, tail));
         }
@@ -57,7 +77,13 @@ fn brute_force(bank: &GlyphBank, t: &[f32], width: usize, r: usize, advances: &[
     go(bank, t, width, r, advances, 0, &tail)
 }
 
-fn run(bank: &GlyphBank, t: &[f32], rows: usize, width: usize, advances: &[f32]) -> unicode_art_core::layout::Layout {
+fn run(
+    bank: &GlyphBank,
+    t: &[f32],
+    rows: usize,
+    width: usize,
+    advances: &[f32],
+) -> unicode_art_core::layout::Layout {
     let s = score(bank, t, rows, width);
     solve(&LayoutInput {
         rows,
@@ -90,7 +116,10 @@ fn matches_exhaustive_search_with_integer_advances() {
     for r in 0..rows {
         let expected = brute_force(&bank, &t, width, r, &advances);
         total += expected;
-        let (a, b) = (layout.row_offsets[r] as usize, layout.row_offsets[r + 1] as usize);
+        let (a, b) = (
+            layout.row_offsets[r] as usize,
+            layout.row_offsets[r + 1] as usize,
+        );
         let mut x = 0.0;
         let mut cost = 0.0;
         for i in a..b {
@@ -104,9 +133,17 @@ fn matches_exhaustive_search_with_integer_advances() {
         assert_eq!(layout.row_widths[r], x);
         assert!(x <= width as f32);
         let tail: f64 = (0..H as usize)
-            .map(|y| (x as usize..width).map(|c| (t[(r * H as usize + y) * width + c] as f64).powi(2)).sum::<f64>())
+            .map(|y| {
+                (x as usize..width)
+                    .map(|c| (t[(r * H as usize + y) * width + c] as f64).powi(2))
+                    .sum::<f64>()
+            })
             .sum();
-        assert!((cost + tail - expected).abs() < 1e-4, "row {r}: {} vs {expected}", cost + tail);
+        assert!(
+            (cost + tail - expected).abs() < 1e-4,
+            "row {r}: {} vs {expected}",
+            cost + tail
+        );
     }
     assert!((layout.total_cost - total).abs() < 1e-3);
 }

@@ -53,7 +53,8 @@ impl GlyphBank {
             .find(|b| group >= b.group_offset && group < b.group_offset + b.group_count)
             .expect("slot out of range");
         let px = bin.width * self.cell_h;
-        let word = self.data[(bin.data_offset + (group - bin.group_offset) * px + y * bin.width + x) as usize];
+        let word = self.data
+            [(bin.data_offset + (group - bin.group_offset) * px + y * bin.width + x) as usize];
         (word >> (lane * 8)) as u8
     }
 }
@@ -73,25 +74,43 @@ pub struct GlyphBankBuilder {
 impl GlyphBankBuilder {
     pub fn new(cell_h: u32) -> Self {
         assert!(cell_h > 0, "cell height must be positive");
-        Self { cell_h, entries: Vec::new() }
+        Self {
+            cell_h,
+            entries: Vec::new(),
+        }
     }
 
     /// Extracts glyph cells from an RGBA page (coverage is read from the red
     /// channel). For glyph `i`, the cell is the `widths[i]` x `cell_h`
     /// rectangle whose top left corner is `(xs[i], ys[i])`.
-    pub fn add_page(&mut self, rgba: &[u8], page_w: u32, xs: &[u32], ys: &[u32], glyphs: &[u32], widths: &[u32]) {
+    pub fn add_page(
+        &mut self,
+        rgba: &[u8],
+        page_w: u32,
+        xs: &[u32],
+        ys: &[u32],
+        glyphs: &[u32],
+        widths: &[u32],
+    ) {
         assert!(xs.len() == ys.len() && xs.len() == glyphs.len() && xs.len() == widths.len());
         let page_h = rgba.len() as u32 / 4 / page_w.max(1);
         for i in 0..xs.len() {
             let (x0, y0, w) = (xs[i], ys[i], widths[i]);
             assert!(w > 0, "glyph width must be positive");
-            assert!(x0 + w <= page_w && y0 + self.cell_h <= page_h, "glyph cell outside of page");
+            assert!(
+                x0 + w <= page_w && y0 + self.cell_h <= page_h,
+                "glyph cell outside of page"
+            );
             let mut pixels = Vec::with_capacity((w * self.cell_h) as usize);
             for y in 0..self.cell_h {
                 let row = ((y0 + y) * page_w + x0) as usize * 4;
                 pixels.extend((0..w as usize).map(|x| rgba[row + x * 4]));
             }
-            self.entries.push(Entry { glyph: glyphs[i], width: w, pixels });
+            self.entries.push(Entry {
+                glyph: glyphs[i],
+                width: w,
+                pixels,
+            });
         }
     }
 
@@ -111,7 +130,11 @@ impl GlyphBankBuilder {
         self.entries.sort_by_key(|e| (e.width, e.glyph));
         let before = self.entries.len();
         let mut seen = std::collections::HashSet::new();
-        let keep: Vec<bool> = self.entries.iter().map(|e| seen.insert((e.width, e.pixels.as_slice()))).collect();
+        let keep: Vec<bool> = self
+            .entries
+            .iter()
+            .map(|e| seen.insert((e.width, e.pixels.as_slice())))
+            .collect();
         drop(seen);
         let mut flags = keep.into_iter();
         self.entries.retain(|_| flags.next().unwrap_or(false));
@@ -150,7 +173,8 @@ impl GlyphBankBuilder {
                 for e in &lanes {
                     match e {
                         Some(e) => {
-                            bank.norms.push(e.pixels.iter().map(|&v| (v as f32 / 255.0).powi(2)).sum());
+                            bank.norms
+                                .push(e.pixels.iter().map(|&v| (v as f32 / 255.0).powi(2)).sum());
                             bank.slot_glyph.push(e.glyph);
                         }
                         None => {
