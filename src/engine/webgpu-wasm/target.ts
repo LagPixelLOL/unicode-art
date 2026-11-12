@@ -7,7 +7,9 @@ import shaderSource from "./target.wgsl?raw";
 
 /** Invocations per side of a workgroup (WG in the shader). */
 export const TARGET_WORKGROUP = 8;
-const ENTRY_POINTS = ["reduce", "blur_x", "blur_y", "resample"] as const;
+/** Invocations per workgroup of the row sums (ROWS_WG in the shader). */
+const ROWS_WORKGROUP = 64;
+const ENTRY_POINTS = ["mean_rows", "mean_total", "reduce", "blur_x", "blur_y", "resample"] as const;
 type EntryPoint = (typeof ENTRY_POINTS)[number];
 const PARAM_BYTES = 64;
 
@@ -39,6 +41,7 @@ export class TargetPreparer {
         storage(2, "storage"),
         storage(3, "storage"),
         storage(4, "storage"),
+        storage(5, "storage"),
       ],
     });
   }
@@ -73,6 +76,7 @@ export class TargetPreparer {
     }
     const pipelines = await abortable(this.compile(), signal);
     const pre = r.preprocessing;
+    const contrast = pre.contrast > 0;
     const boost = pre.edgeAmount > 0;
     const blur = boost ? planBlur(pre.edgeSigma) : { step: 1, sigma: 1, radius: 1 };
     const gridW = Math.ceil(r.width / blur.step);
@@ -94,17 +98,18 @@ export class TargetPreparer {
       const gridB = buffer("blur grid b", gridBytes, GPUBufferUsage.STORAGE);
       const out = buffer("target", chunkBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const read = buffer("target readback", chunkBytes, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+      const stats = buffer("grey statistics", contrast ? (r.height + 1) * 4 : 0, GPUBufferUsage.STORAGE);
       device.queue.writeBuffer(src, 0, r.rgba.buffer, r.rgba.byteOffset, srcBytes);
       const bindGroup = device.createBindGroup({
         layout: this.layout,
-        entries: [params, src, gridA, gridB, out].map((b, binding) => ({ binding, resource: { buffer: b } })),
+        entries: [params, src, gridA, gridB, out, stats].map((b, binding) => ({ binding, resource: { buffer: b } })),
       });
 
       const words = new ArrayBuffer(PARAM_BYTES);
       const u32 = new Uint32Array(words);
       const f32 = new Float32Array(words);
       u32.set([r.width, r.height, r.outWidth, r.outHeight, 0, 0, gridW, gridH, blur.step, blur.radius, pre.invert ? 1 : 0, boost ? 1 : 0]);
-      f32.set([pre.gamma, pre.edgeAmount, blur.sigma], 12);
+      f32.set([pre.contrast, pre.edgeAmount, blur.sigma], 12);
 
       const result = new Float32Array(r.outWidth * r.outHeight);
       const groups = (n: number) => Math.ceil(n / TARGET_WORKGROUP);
@@ -117,6 +122,12 @@ export class TargetPreparer {
         const enc = device.createCommandEncoder();
         const pass = enc.beginComputePass();
         pass.setBindGroup(0, bindGroup);
+        if (contrast && row === 0) {
+          pass.setPipeline(pipelines.mean_rows);
+          pass.dispatchWorkgroups(Math.ceil(r.height / ROWS_WORKGROUP));
+          pass.setPipeline(pipelines.mean_total);
+          pass.dispatchWorkgroups(1);
+        }
         if (boost && row === 0) {
           for (const e of ["reduce", "blur_x", "blur_y"] as const) {
             pass.setPipeline(pipelines[e]);

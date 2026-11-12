@@ -1,18 +1,20 @@
 // Ink target preparation.
 //
 // The source image is composited over white and converted to grey. The
-// preprocessing (flip, gamma, edge boost) is applied to that grey image at
-// the source resolution; the result is resampled in linear light to the
-// sampling grid and encoded back to sRGB brightness.
+// preprocessing (flip, contrast boost, edge boost) is applied to that grey
+// image at the source resolution; the result is resampled in linear light to
+// the sampling grid and encoded back to sRGB brightness.
+//
+// Contrast boosting pivots on the mean grey of the (flipped) image, which
+// mean_rows and mean_total compute first.
 //
 // Edge boosting is an unsharp mask. Its Gaussian blur runs on a grid of
 // blocks `step` pixels wide (reduce, blur_x, blur_y) and is sampled
 // bilinearly by resample, which computes every grey value on the fly, so no
-// full resolution intermediate image is stored. A pixel at exactly 0 is
-// black after every step (see BLACK).
+// full resolution intermediate image is stored.
 
 const WG: u32 = 8u;
-const BLACK: f32 = 1e-5;
+const ROWS_WG: u32 = 64u;
 
 struct Params {
   src_w: u32,
@@ -29,7 +31,8 @@ struct Params {
   radius: u32,
   invert: u32,
   boost: u32,
-  gamma: f32,
+  // Contrast boost in [0, 1].
+  contrast: f32,
   amount: f32,
   // Gaussian sigma on the grid, in blocks.
   sigma: f32,
@@ -42,6 +45,8 @@ struct Params {
 @group(0) @binding(2) var<storage, read_write> grid_a: array<f32>;
 @group(0) @binding(3) var<storage, read_write> grid_b: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out_px: array<f32>;
+// Mean grey at index 0, then the grey sum of every source row.
+@group(0) @binding(5) var<storage, read_write> stats: array<f32>;
 
 fn srgb_to_linear(v: f32) -> f32 {
   if (v <= 0.04045) {
@@ -63,22 +68,57 @@ fn channel(c: u32, a: u32) -> f32 {
   return srgb_to_linear(f32((c * a + 255u * (255u - a) + 127u) / 255u) / 255.0);
 }
 
-// Preprocessed grey value of a source pixel, before edge boosting.
-fn grey(x: u32, y: u32) -> f32 {
+// Grey value of a source pixel, flipped when asked to.
+fn flipped(x: u32, y: u32) -> f32 {
   let p = src[y * params.src_w + x];
   let a = p >> 24u;
   let lum = 0.2126 * channel(p & 255u, a) + 0.7152 * channel((p >> 8u) & 255u, a) + 0.0722 * channel((p >> 16u) & 255u, a);
-  var v = linear_to_srgb(lum);
-  if (params.invert != 0u) {
-    v = 1.0 - v;
+  let v = linear_to_srgb(lum);
+  return select(v, 1.0 - v, params.invert != 0u);
+}
+
+// S-curve around the mean grey m with slope 1 / (1 - contrast) at m. Black,
+// white and m stay where they are; contrast 1 thresholds at m.
+fn boost_contrast(v: f32) -> f32 {
+  let c = params.contrast;
+  let m = stats[0];
+  if (c <= 0.0 || m <= 0.0 || m >= 1.0) {
+    return v;
   }
-  // Black stays black for every gamma, including 0. Rounding leaves flipped
-  // white a hair above 0, which a gamma below 1 would lift; the darkest
-  // grey above black that 8 bit pixels give is about 2.8e-4.
-  if (v <= BLACK) {
-    return 0.0;
+  if (c >= 1.0) {
+    return select(select(1.0, m, v == m), 0.0, v < m);
   }
-  return pow(v, params.gamma);
+  let k = 1.0 / (1.0 - c);
+  if (v < m) {
+    return m * pow(v / m, k);
+  }
+  return 1.0 - (1.0 - m) * pow((1.0 - v) / (1.0 - m), k);
+}
+
+// Preprocessed grey value of a source pixel, before edge boosting.
+fn grey(x: u32, y: u32) -> f32 {
+  return boost_contrast(flipped(x, y));
+}
+
+@compute @workgroup_size(ROWS_WG)
+fn mean_rows(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x >= params.src_h) {
+    return;
+  }
+  var sum = 0.0;
+  for (var x = 0u; x < params.src_w; x++) {
+    sum += flipped(x, id.x);
+  }
+  stats[id.x + 1u] = sum;
+}
+
+@compute @workgroup_size(1)
+fn mean_total() {
+  var sum = 0.0;
+  for (var y = 0u; y < params.src_h; y++) {
+    sum += stats[y + 1u];
+  }
+  stats[0] = sum / f32(params.src_w * params.src_h);
 }
 
 // Tent weighted averages of the grey image around every block center, two

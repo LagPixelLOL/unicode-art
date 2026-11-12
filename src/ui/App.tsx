@@ -5,7 +5,8 @@ import type { ComputeBackend, ExclusionRule } from "../engine/backend";
 import { CUSTOM_PRESET, DEFAULT_PRESET, PRESETS, loadRemoteFonts, matchPreset, remoteKey } from "../fonts/presets";
 import { FontStore, formatBytes, listSize } from "../fonts/store";
 import { classifyFile, decodeImage, imageFromItems } from "../image/load";
-import { Badge, Progress, Section, buttonClass, inputClass } from "./common";
+import { DEFAULT_PREPROCESS } from "../art/preprocess";
+import { Badge, Progress, Section, UnitField, buttonClass, inputClass } from "./common";
 import { ExclusionInfo } from "./ExclusionInfo";
 import { FontList, isInternalDrag } from "./FontList";
 import { errorText, useNotify } from "./notices";
@@ -47,7 +48,9 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [widthText, setWidthText] = useState("80");
   const [detailText, setDetailText] = useState("10");
-  const [invert, setInvert] = useState(false);
+  const [invert, setInvert] = useState(DEFAULT_PREPROCESS.invert);
+  const [contrastText, setContrastText] = useState(String(DEFAULT_PREPROCESS.contrast));
+  const [edgesText, setEdgesText] = useState(String(DEFAULT_PREPROCESS.edges));
   const [fontUrl, setFontUrl] = useState("");
   const [domCheck, setDomCheck] = useState<DomCheck | null>(null);
   const [copied, setCopied] = useState<{ which: "plain" | "markdown"; ok: boolean } | null>(null);
@@ -71,7 +74,7 @@ export function App({ backend }: { backend: ComputeBackend }) {
   const size = listSize(entries);
 
   const presetId = useMemo(() => matchPreset(entries.map((e) => (e.remote ? remoteKey(e.remote) : null))) ?? CUSTOM_PRESET, [entries]);
-  const options = readOptions(widthText, detailText, invert);
+  const options = readOptions({ width: widthText, detail: detailText, invert, contrast: contrastText, edges: edgesText });
   const inputKey = `${image?.id}|${typeof options === "string" ? options : JSON.stringify(options)}|${entries.map((e) => e.id).join(",")}`;
   const stale = !!result && runKey !== null && runKey !== inputKey && !conversion.running;
 
@@ -327,6 +330,29 @@ export function App({ backend }: { backend: ComputeBackend }) {
             )}
           </Section>
 
+          <Section title="Preprocessing">
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  data-testid="opt-invert"
+                  checked={invert}
+                  onChange={(e) => setInvert(e.target.checked)}
+                  className="h-4 w-4 accent-zinc-400"
+                />
+                <span>Flip black and white</span>
+              </label>
+              <UnitField label="Contrast boost" value={contrastText} onChange={setContrastText} testId="opt-contrast" />
+              <UnitField label="Edge boost" value={edgesText} onChange={setEdgesText} testId="opt-edges" />
+              <p className="text-xs text-zinc-500">
+                Applied to the grey image, in this order, when you press Start; each step works on its own. Bright
+                areas get dense characters, as the output is light text on black; flipping inverts that. Contrast
+                boost spreads tones away from the image's mean grey (1 leaves only black and white). Edge boost
+                sharpens contours so characters follow them. 0 turns either boost off.
+              </p>
+            </div>
+          </Section>
+
           <Section title="Fonts" extra={<ExclusionInfo rules={rules} />}>
             <select
               aria-label="Font preset, choosing one replaces the list"
@@ -458,19 +484,9 @@ export function App({ backend }: { backend: ComputeBackend }) {
                   className={`${inputClass} w-24 text-right`}
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  data-testid="opt-invert"
-                  checked={invert}
-                  onChange={(e) => setInvert(e.target.checked)}
-                  className="h-4 w-4 accent-zinc-400"
-                />
-                <span>Flip black and white</span>
-              </label>
               <p className="text-xs text-zinc-500">
                 A cell is the width of the digit 0 in the font stack. Lines never exceed the max width; the height
-                follows the image. By default bright areas get dense characters, as the output is light text on black.
+                follows the image.
               </p>
             </div>
           </Section>

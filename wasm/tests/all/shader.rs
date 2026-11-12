@@ -43,5 +43,8 @@ fn target_shader_is_valid() {
     validate(&src);
     let module = naga::front::wgsl::parse_str(&src).unwrap();
     let entries: Vec<_> = module.entry_points.iter().map(|e| e.name.as_str()).collect();
-    assert_eq!(entries, ["reduce", "blur_x", "blur_y", "resample"]);
+    assert_eq!(
+        entries,
+        ["mean_rows", "mean_total", "reduce", "blur_x", "blur_y", "resample"]
+    );
 }

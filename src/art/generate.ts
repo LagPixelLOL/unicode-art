@@ -5,11 +5,12 @@ import { throwIfAborted } from "../engine/backend";
 import { rasterizeGlyphs } from "./atlas";
 import { type CharsetData, type FontRef, buildCharset, charsetKey } from "./charset";
 import { type Geometry, type GlyphSelection, computeGeometry, rowCount, selectGlyphs } from "./geometry";
+import { type PreprocessOptions, toPreprocessing } from "./preprocess";
 
 export interface ArtOptions {
   widthCells: number;
   detail: number;
-  invert: boolean;
+  preprocess: PreprocessOptions;
 }
 
 export interface SourceImage {
@@ -141,7 +142,7 @@ export class ArtGenerator {
       height: image.height,
       outWidth: geometry.widthPx,
       outHeight: rows * geometry.cellH,
-      preprocessing: { invert: options.invert, gamma: 1, edgeAmount: 0, edgeSigma: 1 },
+      preprocessing: toPreprocessing(options.preprocess, image.width, geometry),
       signal,
     });
     ms.target = performance.now() - t;

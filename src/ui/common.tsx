@@ -31,3 +31,37 @@ export function Badge({ ok }: { ok: boolean | null }) {
   const cls = ok === null ? "bg-zinc-800 text-zinc-400" : ok ? "bg-emerald-950 text-emerald-400" : "bg-red-950 text-red-400";
   return <span className={`shrink-0 self-start rounded px-1.5 leading-5 font-medium ${cls}`}>{ok === null ? "..." : ok ? "PASS" : "FAIL"}</span>;
 }
+
+/** A value from 0 to 1, typed or set with a slider. */
+export function UnitField({ label, value, onChange, testId }: { label: string; value: string; onChange: (text: string) => void; testId: string }) {
+  const n = Number(value);
+  const valid = value.trim() !== "" && n >= 0 && n <= 1;
+  return (
+    <div className="space-y-1">
+      <label className="flex items-center justify-between gap-3 text-sm text-zinc-300">
+        <span>{label}</span>
+        <input
+          type="number"
+          data-testid={testId}
+          min={0}
+          max={1}
+          step={0.05}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputClass} w-24 text-right`}
+        />
+      </label>
+      <input
+        type="range"
+        aria-label={label}
+        data-testid={`${testId}-range`}
+        min={0}
+        max={1}
+        step={0.01}
+        value={valid ? n : 0}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full accent-zinc-400"
+      />
+    </div>
+  );
+}

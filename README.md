@@ -27,8 +27,9 @@ ready to copy.
   rendered with the previous fonts.
 - Proportional (variable width) and variable (OpenType variations) fonts are
   fully supported: every glyph is placed at its exact advance.
-- Options: maximum width in cells, sampling detail, and flipping black and
-  white.
+- Options: maximum width in cells and sampling detail.
+- Preprocessing (see below): flip black and white, contrast boost and edge
+  boost, each usable on its own or with any of the others.
 - Nothing runs until you press Start. While converting, Start becomes Cancel,
   which stops the work immediately.
 - The output is scaled to fit its box exactly (letterboxed with black where
@@ -64,10 +65,10 @@ later (see "Backends").
 3. Glyphs: every candidate is drawn natively by the browser, each with its own
    font, and packed by the Rust core into width bins (identical glyphs are
    dropped).
-4. Image (WebGPU): compute shaders composite the image over white and
-   convert it to grey, flip black and white when asked to (on the grey image
-   at its own resolution), then resample it in linear light to the sampling
-   grid. The result, as sRGB brightness, is the ink target.
+4. Image (WebGPU): compute shaders composite the image over white, convert
+   it to grey, preprocess the grey image at its own resolution (see
+   "Preprocessing") and resample it in linear light to the sampling grid.
+   The result, as sRGB brightness, is the ink target.
 5. Matching (WebGPU): a compute shader scores every glyph at every start
    column of every line (squared error) and keeps the best glyph per width
    bin. Work is submitted in small, adaptively sized steps so cancelling is
@@ -84,7 +85,30 @@ later (see "Backends").
    scaled down with a CSS transform.
 
 By default bright areas get dense characters, because the output is light
-text on black; "Flip black and white" inverts that.
+text on black.
+
+### Preprocessing
+
+Preprocessing runs on the GPU when you press Start, as part of the
+conversion (so Cancel stops it too). It works on the grey image, never on
+the colors, at the image's own resolution before it is resampled. The steps
+run in this order, and each one works with or without the others:
+
+1. Flip black and white: inverts the grey image, so dark areas get dense
+   characters. Flipping before resampling keeps the tone of fine textures (a
+   fine checkerboard stays the same grey).
+2. Contrast boost (0 to 1, default 0.5): an S-curve around the mean grey of
+   the image, with slope `1 / (1 - strength)` at the mean. Black, white and
+   the mean stay where they are, so nothing clips, and pivoting on the mean
+   keeps dark and bright images balanced. 0 keeps the image, 1 leaves only
+   black and white.
+3. Edge boost (0 to 1, default 0.5): an unsharp mask, grey plus
+   `8 * strength` times the difference to a Gaussian blur of the grey image,
+   clamped. The blur radius (sigma) is one cell, converted to source pixels,
+   so the effect looks the same for any image size; narrower halos average
+   out within a character. 0 turns it off. The blur runs on a grid coarser
+   than the image (tent weighted block averages, a separable Gaussian and
+   linear interpolation back), so its cost does not grow with the radius.
 
 ### Verification
 

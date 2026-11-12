@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { cssFont, planAtlas } from "../../src/art/atlas";
 import { advanceAgrees, charsetKey, fontAdvance } from "../../src/art/charset";
 import type { ArtResult } from "../../src/art/generate";
+import { DEFAULT_PREPROCESS, EDGE_SIGMA_CELLS, MAX_EDGE_AMOUNT, toPreprocessing } from "../../src/art/preprocess";
 import { DEFAULT_CH_EM, MAX_GLYPH_CELLS, computeGeometry, rowCount, selectGlyphs } from "../../src/art/geometry";
 import { baselineTolerance, domTolerance, evaluateDom, fontSegments } from "../../src/art/verify";
 import { AbortedError, type BackendFactory, isAbort, throwIfAborted } from "../../src/engine/backend";
@@ -339,14 +340,28 @@ describe("ui helpers", () => {
   });
 
   it("validates options", () => {
-    expect(readOptions("80", "10", true)).toEqual({ widthCells: 80, detail: 10, invert: true });
-    expect(readOptions("0", "10", false)).toMatch(/Max width/);
-    expect(readOptions("1001", "10", false)).toMatch(/Max width/);
-    expect(readOptions("1.5", "10", false)).toMatch(/Max width/);
-    expect(readOptions("", "10", false)).toMatch(/Max width/);
-    expect(readOptions("10", "1", false)).toMatch(/Detail/);
-    expect(readOptions("10", " ", false)).toMatch(/Detail/);
-    expect(readOptions("10", "33", false)).toMatch(/Detail/);
+    const f = { width: "80", detail: "10", invert: true, contrast: "0.5", edges: "0" };
+    expect(readOptions(f)).toEqual({ widthCells: 80, detail: 10, preprocess: { invert: true, contrast: 0.5, edges: 0 } });
+    expect(readOptions({ ...f, invert: false, contrast: "0", edges: "1" })).toMatchObject({ preprocess: { invert: false, contrast: 0, edges: 1 } });
+    for (const width of ["0", "1001", "1.5", ""]) expect(readOptions({ ...f, width })).toMatch(/Max width/);
+    for (const detail of ["1", " ", "33"]) expect(readOptions({ ...f, detail })).toMatch(/Detail/);
+    for (const contrast of ["", "-0.1", "1.01", "x"]) expect(readOptions({ ...f, contrast })).toMatch(/Contrast boost/);
+    for (const edges of [" ", "-1", "2", "NaN"]) expect(readOptions({ ...f, edges })).toMatch(/Edge boost/);
+  });
+
+  it("maps preprocessing to backend parameters", () => {
+    expect(DEFAULT_PREPROCESS).toEqual({ invert: false, contrast: 0.5, edges: 0.5 });
+    const geo = computeGeometry({ chEm: 0.5, ascentEm: 0.8, descentEm: 0.2, detail: 10, widthCells: 80 });
+    // 1600 source pixels over 800 samples: 2 source pixels per sample.
+    expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, 1600, geo)).toEqual({
+      invert: true,
+      contrast: 0.3,
+      edgeAmount: 0.5 * MAX_EDGE_AMOUNT,
+      edgeSigma: EDGE_SIGMA_CELLS * 10 * 2,
+    });
+    expect(toPreprocessing({ invert: false, contrast: 1, edges: 0 }, 1600, geo).edgeAmount).toBe(0);
+    // Enlarged images blur at least one source pixel.
+    expect(toPreprocessing(DEFAULT_PREPROCESS, 20, geo).edgeSigma).toBe(1);
   });
 
   it("classifies dropped and pasted files", () => {

@@ -26,7 +26,7 @@ vi.mock("../../src/art/verify", () => ({
 }));
 
 const store = { ensureReady: async () => [], ready: [{ id: 1 }] } as unknown as FontStore;
-const inputs = { image: { id: 1 } as never, options: { widthCells: 10, detail: 4, invert: false } };
+const inputs = { image: { id: 1 } as never, options: { widthCells: 10, detail: 4, preprocess: { invert: false, contrast: 0.5, edges: 0.5 } } };
 const wrapper = ({ children }: { children: ReactNode }) => <NoticeProvider>{children}</NoticeProvider>;
 
 describe("useConversion", () => {

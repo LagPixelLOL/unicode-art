@@ -8,10 +8,10 @@ import { planBlur } from "../../src/engine/webgpu-wasm/plan";
 import { TargetPreparer } from "../../src/engine/webgpu-wasm/target";
 import { loadCore } from "./helpers/core";
 import { requireGpuNotice } from "./helpers/gpu";
-import { referenceBlur, referenceTarget, rng } from "./helpers/reference";
+import { contrastCurve, referenceBlur, referenceTarget, rng } from "./helpers/reference";
 
 const device = await requireGpuNotice();
-const PLAIN: Preprocessing = { invert: false, gamma: 1, edgeAmount: 0, edgeSigma: 1 };
+const PLAIN: Preprocessing = { invert: false, contrast: 0, edgeAmount: 0, edgeSigma: 1 };
 
 function solid(w: number, h: number, px: number[]): Uint8Array {
   return Uint8Array.from({ length: w * h * 4 }, (_, i) => px[i % 4]);
@@ -122,18 +122,39 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     }
   });
 
-  it("applies gamma to the grey values, keeping black and white", async () => {
-    const greys = new Uint8Array([0, 0, 0, 255, 64, 64, 64, 255, 128, 128, 128, 255, 255, 255, 255, 255]);
-    const at = async (gamma: number, invert = false) => [...(await prepare(request(greys, 4, 1, 4, 1, { gamma, invert })))];
-    const plain = await at(1);
+  it("boosts contrast around the mean grey, keeping black and white", async () => {
+    const levels = [0, 64, 100, 192, 255];
+    const greys = Uint8Array.from(levels.flatMap((c) => [c, c, c, 255]));
+    const mean = levels.reduce((s, c) => s + c / 255, 0) / levels.length;
+    const at = async (contrast: number, invert = false) => [...(await prepare(request(greys, 5, 1, 5, 1, { contrast, invert })))];
+    const plain = await at(0);
+    for (const [i, c] of levels.entries()) expect(plain[i]).toBeCloseTo(c / 255, 3);
     const half = await at(0.5);
-    for (let i = 0; i < 4; i++) expect(half[i]).toBeCloseTo(Math.sqrt(plain[i]), 3);
-    expect(half[1]).toBeGreaterThan(plain[1]);
-    // Gamma 0 is the limit: everything but black becomes white.
-    expect((await at(0)).map((v) => +v.toFixed(3))).toEqual([0, 1, 1, 1]);
-    // Gamma acts after the flip.
+    for (const [i, c] of levels.entries()) expect(half[i]).toBeCloseTo(contrastCurve(c / 255, mean, 0.5), 3);
+    expect([half[0], half[4]]).toEqual([plain[0], plain[4]]);
+    // Darker below the mean, brighter above it, more so with a stronger boost.
+    const strong = await at(0.9);
+    expect(strong[1]).toBeLessThan(half[1]);
+    expect(half[1]).toBeLessThan(plain[1]);
+    expect(strong[3]).toBeGreaterThan(half[3]);
+    expect(half[3]).toBeGreaterThan(plain[3]);
+    // 1 leaves only black and white.
+    expect((await at(1)).map((v) => +v.toFixed(3))).toEqual([0, 0, 0, 1, 1]);
+    // The curve follows the flip: flipped input gives the flipped result.
     const flipped = await at(0.5, true);
-    for (const [i, c] of [0, 64, 128, 255].entries()) expect(flipped[i]).toBeCloseTo(Math.sqrt(1 - c / 255), 3);
+    for (let i = 0; i < 5; i++) expect(flipped[i]).toBeCloseTo(1 - half[i], 3);
+  });
+
+  it("pivots the contrast boost on the image's own mean", async () => {
+    // A dark image: its brighter pixels get brighter, though below mid grey.
+    const dark = Uint8Array.from([30, 30, 30, 90].flatMap((c) => [c, c, c, 255]));
+    const out = await prepare(request(dark, 4, 1, 4, 1, { contrast: 0.5 }));
+    expect(out[3]).toBeGreaterThan(90 / 255 + 0.05);
+    expect(out[0]).toBeLessThan(30 / 255);
+    // A uniform image has nothing to spread.
+    const flat = await prepare(request(solid(9, 7, [77, 77, 77, 255]), 9, 7, 3, 2, { contrast: 0.8 }));
+    expect(flat.every((v) => Math.abs(v - 77 / 255) < 2e-3)).toBe(true);
+    expect((await prepare(request(solid(2, 2, [0, 0, 0, 255]), 2, 2, 1, 1, { contrast: 1 })))[0]).toBeCloseTo(0, 4);
   });
 
   it("boosts edges with an unsharp mask that leaves flat areas alone", async () => {
@@ -167,13 +188,13 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     for (const [w, h, ow, oh] of shapes) {
       const rgba = noise(w, h, seed++);
       for (const invert of [false, true]) {
-        for (const gamma of [1, 0.35]) {
+        for (const contrast of [0, 0.6]) {
           for (const [edgeAmount, edgeSigma] of [
             [0, 1],
             [1.3, 1.5],
             [0.8, 9],
           ]) {
-            const r = request(rgba, w, h, ow, oh, { invert, gamma, edgeAmount, edgeSigma });
+            const r = request(rgba, w, h, ow, oh, { invert, contrast, edgeAmount, edgeSigma });
             expect(maxDiff(await prepare(r), referenceTarget(r)), JSON.stringify(r.preprocessing)).toBeLessThan(5e-4);
           }
         }
@@ -182,7 +203,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   });
 
   it("splits tall outputs into chunks without changing the result", async () => {
-    const r = request(noise(30, 90, 7), 30, 90, 13, 41, { invert: true, gamma: 0.6, edgeAmount: 1, edgeSigma: 5 });
+    const r = request(noise(30, 90, 7), 30, 90, 13, 41, { invert: true, contrast: 0.6, edgeAmount: 1, edgeSigma: 5 });
     const whole = await prepare(r);
     const chunked = await new TargetPreparer(device!, { chunkBytes: 13 * 4 * 6 }).prepare(r);
     expect(maxDiff(whole, chunked)).toBe(0);
@@ -212,8 +233,9 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     await expect(prepare(request(new Uint8Array(4), 2, 1, 1, 1))).rejects.toThrow(/does not match/);
     await expect(prepare(request(new Uint8Array(4), 1, 1, 0, 1))).rejects.toThrow(/positive/);
     await expect(prepare(request(new Uint8Array(4), 1, 1, 1.5, 1))).rejects.toThrow(/positive/);
-    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { gamma: -1 }))).rejects.toThrow(/Gamma/);
-    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { gamma: Infinity }))).rejects.toThrow(/Gamma/);
+    for (const contrast of [-1, 1.5, Number.NaN]) {
+      await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { contrast }))).rejects.toThrow(/contrast/);
+    }
     await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edgeAmount: -1 }))).rejects.toThrow(/amount/);
     await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edgeAmount: 1, edgeSigma: 0 }))).rejects.toThrow(/radius/);
     // A radius is only needed when edges are boosted.

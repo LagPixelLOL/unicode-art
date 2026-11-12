@@ -118,21 +118,26 @@ export function linearToSrgb(v: number): number {
   return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
-/** Darkest grey kept above black (BLACK in target.wgsl). */
-const BLACK = 1e-5;
+/** S-curve of the contrast boost around the mean grey `m` (see target.wgsl). */
+export function contrastCurve(v: number, m: number, c: number): number {
+  if (c <= 0 || m <= 0 || m >= 1) return v;
+  if (c >= 1) return v < m ? 0 : v === m ? m : 1;
+  const k = 1 / (1 - c);
+  return v < m ? m * (v / m) ** k : 1 - (1 - m) * ((1 - v) / (1 - m)) ** k;
+}
 
-/** Grey values of the image after flip and gamma (see target.wgsl). */
+/** Grey values of the image after flip and contrast boost (see target.wgsl). */
 export function referenceGrey(r: TargetRequest): Float64Array {
-  const { invert, gamma } = r.preprocessing;
+  const { invert, contrast } = r.preprocessing;
   const grey = new Float64Array(r.width * r.height);
   for (let i = 0; i < grey.length; i++) {
     const a = r.rgba[i * 4 + 3];
     const ch = (k: number) => srgbToLinear(Math.floor((r.rgba[i * 4 + k] * a + 255 * (255 - a) + 127) / 255) / 255);
-    let v = linearToSrgb(0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2));
-    if (invert) v = 1 - v;
-    grey[i] = v <= BLACK ? 0 : v ** gamma;
+    const v = linearToSrgb(0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2));
+    grey[i] = invert ? 1 - v : v;
   }
-  return grey;
+  const mean = grey.reduce((s, v) => s + v, 0) / grey.length;
+  return grey.map((v) => contrastCurve(v, mean, contrast));
 }
 
 /** The unsharp mask's blur on the coarse grid, sampled at every pixel. */

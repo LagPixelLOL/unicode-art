@@ -203,6 +203,7 @@ describe("panels", () => {
 });
 
 describe("App", () => {
+  const prepareTarget = vi.fn(async () => new Float32Array());
   function stubBackend(): ComputeBackend {
     return {
       id: "stub",
@@ -215,7 +216,7 @@ describe("App", () => {
       mergeCoverage: async () => {
         throw new Error("unused");
       },
-      prepareTarget: async () => new Float32Array(),
+      prepareTarget,
       createGlyphBankBuilder: async () => {
         throw new Error("unused");
       },
@@ -264,6 +265,36 @@ describe("App", () => {
     expect(start.disabled).toBe(true);
     expect(screen.getByTestId("status").textContent).toMatch(/Max width/);
     fireEvent.change(screen.getByTestId("opt-width"), { target: { value: "40" } });
+
+    // Preprocessing sits right below the image, with its defaults.
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.slice(0, 3)).toEqual(["Image", "Preprocessing", "Fonts"]);
+    const invert = screen.getByTestId("opt-invert") as HTMLInputElement;
+    const contrast = screen.getByTestId("opt-contrast") as HTMLInputElement;
+    const contrastRange = screen.getByTestId("opt-contrast-range") as HTMLInputElement;
+    const edges = screen.getByTestId("opt-edges") as HTMLInputElement;
+    const edgesRange = screen.getByTestId("opt-edges-range") as HTMLInputElement;
+    expect([invert.checked, contrast.value, contrastRange.value, edges.value, edgesRange.value]).toEqual([false, "0.5", "0.5", "0.5", "0.5"]);
+    // Sliders and fields stay in sync; invalid values block Start with a reason.
+    fireEvent.change(contrastRange, { target: { value: "0.8" } });
+    expect(contrast.value).toBe("0.8");
+    fireEvent.change(edges, { target: { value: "1.5" } });
+    expect(edgesRange.value).toBe("0");
+    expect(start.disabled).toBe(true);
+    expect(screen.getByTestId("status").textContent).toMatch(/Edge boost/);
+    fireEvent.change(edges, { target: { value: "0" } });
+    expect(start.disabled).toBe(false);
+    fireEvent.change(contrast, { target: { value: "" } });
+    expect(screen.getByTestId("status").textContent).toMatch(/Contrast boost/);
+    fireEvent.change(contrast, { target: { value: "1" } });
+    // The steps are independent: none locks or changes another.
+    fireEvent.click(invert);
+    expect(invert.checked).toBe(true);
+    expect([contrast.disabled, contrastRange.disabled, edges.disabled, edgesRange.disabled]).toEqual([false, false, false, false]);
+    expect([contrast.value, edges.value]).toEqual(["1", "0"]);
+    fireEvent.click(invert);
+    // Nothing is processed before Start.
+    expect(prepareTarget).not.toHaveBeenCalled();
 
     // Choosing a preset replaces the list at once, without converting.
     const select = screen.getByTestId("preset-select") as HTMLSelectElement;

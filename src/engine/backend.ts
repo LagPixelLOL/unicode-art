@@ -44,8 +44,12 @@ export interface ExclusionRule {
 export interface Preprocessing {
   /** Flips black and white. */
   invert: boolean;
-  /** Exponent applied to every grey value (1 keeps them, below 1 brightens). */
-  gamma: number;
+  /**
+   * Contrast boost in [0, 1]: an S-curve around the mean grey of the image
+   * with slope 1 / (1 - contrast) at the mean. Black, white and the mean
+   * stay; 0 keeps the image and 1 thresholds it at the mean.
+   */
+  contrast: number;
   /**
    * Edge boost as an unsharp mask: grey + amount * (grey - blurred grey),
    * clamped to [0, 1]. 0 turns it off.
@@ -72,7 +76,7 @@ export function checkTargetRequest(r: TargetRequest): void {
   if (!dims.every((d) => Number.isInteger(d) && d > 0)) throw new Error("Image dimensions must be positive integers.");
   if (r.rgba.length !== r.width * r.height * 4) throw new Error("The pixel buffer does not match the image dimensions.");
   const p = r.preprocessing;
-  if (!(p.gamma >= 0 && Number.isFinite(p.gamma))) throw new Error("Gamma must be a finite number of at least 0.");
+  if (!(p.contrast >= 0 && p.contrast <= 1)) throw new Error("The contrast boost must be a number from 0 to 1.");
   if (!(p.edgeAmount >= 0 && Number.isFinite(p.edgeAmount))) throw new Error("The edge boost amount must be a finite number of at least 0.");
   if (p.edgeAmount > 0 && !(p.edgeSigma > 0 && Number.isFinite(p.edgeSigma))) {
     throw new Error("The edge boost radius must be a positive finite number.");

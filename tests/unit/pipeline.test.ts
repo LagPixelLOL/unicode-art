@@ -44,7 +44,19 @@ function halves(w: number, h: number): SourceImage {
   return { id: 1, name: "halves", width: w, height: h, limited: false, rgba };
 }
 
-const OPTIONS = { widthCells: 12, detail: 6, invert: false };
+/** Black to white from left to right, with a white bar in the dark half. */
+function ramp(w: number, h: number): SourceImage {
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w;
+    const v = x > w * 0.2 && x < w * 0.3 ? 255 : Math.round((x / (w - 1)) * 255);
+    rgba.set([v, v, v, 255], i * 4);
+  }
+  return { id: 2, name: "ramp", width: w, height: h, limited: false, rgba };
+}
+
+const PLAIN = { invert: false, contrast: 0, edges: 0 };
+const OPTIONS = { widthCells: 12, detail: 6, preprocess: PLAIN };
 
 describe.skipIf(!device)("conversion pipeline", () => {
   const backend = new WebGpuWasmBackend(core, device!);
@@ -109,9 +121,18 @@ describe.skipIf(!device)("conversion pipeline", () => {
     expect(r.stats.characters).toBe(r.layout.glyphs.length);
     expect(r.provided).toEqual([6, 2]);
 
-    const again = await gen.generate(fonts, halves(120, 60), { ...OPTIONS, invert: true });
-    expect(again.stats.cached).toEqual({ charset: true, glyphs: true });
-    expect(again.text).not.toBe(r.text);
+    // Every preprocessing step changes the output on its own and reuses the glyphs.
+    const plain = await gen.generate(fonts, ramp(120, 60), OPTIONS);
+    for (const preprocess of [
+      { ...PLAIN, invert: true },
+      { ...PLAIN, contrast: 0.8 },
+      { ...PLAIN, edges: 1 },
+      { invert: true, contrast: 0.5, edges: 0.5 },
+    ]) {
+      const again = await gen.generate(fonts, ramp(120, 60), { ...OPTIONS, preprocess });
+      expect(again.stats.cached).toEqual({ charset: true, glyphs: true });
+      expect(again.text, JSON.stringify(preprocess)).not.toBe(plain.text);
+    }
     const finer = await gen.generate(fonts, halves(120, 60), { ...OPTIONS, detail: 8 });
     expect(finer.stats.cached).toEqual({ charset: true, glyphs: false });
     gen.dispose();
