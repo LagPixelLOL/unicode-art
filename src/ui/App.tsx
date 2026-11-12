@@ -383,8 +383,8 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 shows the result as the conversion will see it. Bright
                 areas get dense characters, as the output is light text on black; flipping inverts that. Contrast
                 boost raises contrast region by region, so dark and bright areas keep their detail. Edge boost
-                fades flat areas into the background; at 1 only the outlines are left, dark on light images and light
-                on dark ones. 0 turns either boost off.
+                fades everything away from edges into the background, then turns what is left into lines; at 1 only
+                the outlines are left, dark on light images and light on dark ones. 0 turns either boost off.
               </p>
             </div>
           </Section>

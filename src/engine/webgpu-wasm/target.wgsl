@@ -12,12 +12,14 @@
 // mean, so dark or bright regions keep their detail instead of being
 // crushed by a global curve.
 //
-// Edge boosting blends the image toward an outline drawing: the gradient
-// magnitude of a Gaussian blur (edge_magnitude), divided by its 98th
-// percentile over the image (edge_hist, edge_level) and soft thresholded,
-// so flat areas fade out and only outlines remain at full strength. The
-// drawing takes the image's polarity: dark lines on white when its mean
-// grey is above one half, light lines on black otherwise.
+// Edge boosting is guided by an edge map: the gradient magnitude of a
+// Gaussian blur (edge_magnitude), divided by its 98th percentile over the
+// image (edge_hist, edge_level) and soft thresholded. Up to EDGE_SPLIT it
+// only fades the image away from edges into the background, so nothing is
+// drawn over the image; beyond it what is left turns into clean lines, and
+// at full strength only outlines remain. Background and lines take the
+// image's polarity: dark lines on white when its mean grey is above one
+// half, light lines on black otherwise.
 //
 // Both the local mean and the outline map need a Gaussian blur. Blurs run on
 // a grid of blocks `step` pixels wide (reduce_*, blur_*) and are sampled
@@ -33,6 +35,8 @@ const EDGE_LOW: f32 = 0.1;
 const EDGE_HIGH: f32 = 0.6;
 // Lowest level, so the noise of a nearly flat image never becomes outlines.
 const EDGE_MIN_LEVEL: f32 = 0.05;
+// Strength at which areas away from edges have fully faded out.
+const EDGE_SPLIT: f32 = 0.6;
 // Workgroups of edge_hist, each adding one partial sum of the image.
 const HIST_GROUPS: u32 = 1024u;
 
@@ -444,9 +448,14 @@ fn linear_px(x: u32, y: u32) -> f32 {
   var v = grey(x, y);
   if (params.boost != 0u) {
     let g = params.edge_grid;
-    let outline = smoothstep(EDGE_LOW, EDGE_HIGH, sample(g, g.b, x, y) / max(edge_stats.level, EDGE_MIN_LEVEL));
-    // Lines in the tone opposite to the image's background.
-    v = mix(v, mix(outline, 1.0 - outline, edge_stats.light), params.edges);
+    let edge = smoothstep(EDGE_LOW, EDGE_HIGH, sample(g, g.b, x, y) / max(edge_stats.level, EDGE_MIN_LEVEL));
+    let background = edge_stats.light;
+    // Away from edges the image fades into the background...
+    let fade = min(1.0, params.edges / EDGE_SPLIT);
+    let kept = background + (v - background) * (1.0 - fade * (1.0 - edge));
+    // ...then what is left turns into lines in the opposite tone.
+    let line = mix(edge, 1.0 - edge, edge_stats.light);
+    v = mix(kept, line, smoothstep(EDGE_SPLIT, 1.0, params.edges));
   }
   return srgb_to_linear(v);
 }

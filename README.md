@@ -121,16 +121,19 @@ and each one works with or without the others:
      Gaussian blur of 4 cells), with slope `1 / (1 - 0.75 * strength)` at the
      mean. Black, white and the local mean stay where they are.
    0 keeps the image.
-3. Edge boost (0 to 1, default 0.5): blends the image toward an outline
-   drawing, so flat areas fade into the background and at 1 only the
-   outlines remain. The drawing takes the image's polarity: dark lines on
+3. Edge boost (0 to 1, default 0.5), guided by an edge map. Up to 0.6 it
+   only fades the image away from edges into the background, keeping the
+   image's own pixels near edges, so nothing is drawn over the image (a
+   plain blend with a line drawing looks like a double exposure). From 0.6
+   to 1 what is left turns into clean lines, and at 1 only the outlines
+   remain. Background and lines take the image's polarity: dark lines on
    white when the image is light (its mean grey is above one half), light
-   lines on black when it is dark, so flipping swaps them. The map is the gradient
-   magnitude of the grey image blurred over a quarter cell (so outlines
-   follow details but survive at character resolution), divided by its 98th
-   percentile over the image so faint and strong edges both reach full ink
-   (with a floor that keeps noise out), and soft thresholded so weak texture
-   drops out. 0 turns it off.
+   lines on black when it is dark, so flipping swaps them. The edge map is
+   the gradient magnitude of the grey image blurred over a quarter cell (so
+   outlines follow details but survive at character resolution), divided by
+   its 98th percentile over the image so faint and strong edges both count
+   fully (with a floor that keeps noise out), and soft thresholded so weak
+   texture drops out. 0 turns it off.
 
 Every radius is measured in cells, converted to source pixels, so the
 effect looks the same at any image size. With very few cells a cell spans

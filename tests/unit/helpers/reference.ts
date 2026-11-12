@@ -279,8 +279,8 @@ function smoothstep(a: number, b: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** The outline drawing edge boosting blends toward, in the image's polarity (see target.wgsl). */
-export function referenceOutlines(grey: Float64Array, w: number, h: number, sigma: number): Float64Array {
+/** The edge map edge boosting is guided by, and the image's polarity (see target.wgsl). */
+export function referenceOutlines(grey: Float64Array, w: number, h: number, sigma: number): { edge: Float64Array; light: boolean } {
   const g = referenceGrid(grey, w, h, sigma);
   const at = (x: number, y: number) => g.values[y * g.w + x];
   const magnitude = new Float64Array(g.values.length);
@@ -304,9 +304,19 @@ export function referenceOutlines(grey: Float64Array, w: number, h: number, sigm
   }
   level = Math.max(level, 0.05);
   const light = g.values.reduce((sum, v) => sum + v, 0) / g.values.length > 0.5;
-  return sampleGrid({ ...g, values: magnitude }, w, h).map((m) => {
-    const line = smoothstep(0.1, 0.6, m / level);
-    return light ? 1 - line : line;
+  return { edge: sampleGrid({ ...g, values: magnitude }, w, h).map((m) => smoothstep(0.1, 0.6, m / level)), light };
+}
+
+/** Edge boosting of `grey` with strength `s` (see target.wgsl). */
+export function referenceEdgeBoost(grey: Float64Array, w: number, h: number, s: number, sigma: number): Float64Array {
+  const { edge, light } = referenceOutlines(grey, w, h, sigma);
+  const background = light ? 1 : 0;
+  const fade = Math.min(1, s / 0.6);
+  const t = smoothstep(0.6, 1, s);
+  return grey.map((v, i) => {
+    const kept = background + (v - background) * (1 - fade * (1 - edge[i]));
+    const line = light ? 1 - edge[i] : edge[i];
+    return kept + (line - kept) * t;
   });
 }
 
@@ -334,8 +344,8 @@ function referenceTaps(n: number, m: number): { first: number; weights: number[]
 export function referenceTarget(r: OracleRequest): Float32Array {
   const { edges, edgeSigma } = r.preprocessing;
   const grey = referenceGrey(r);
-  const outlines = edges > 0 ? referenceOutlines(grey, r.width, r.height, edgeSigma) : null;
-  const lin = grey.map((v, i) => srgbToLinear(outlines ? v + (outlines[i] - v) * edges : v));
+  const boosted = edges > 0 ? referenceEdgeBoost(grey, r.width, r.height, edges, edgeSigma) : grey;
+  const lin = boosted.map(srgbToLinear);
   const tx = referenceTaps(r.width, r.outWidth);
   const ty = referenceTaps(r.height, r.outHeight);
   const out = new Float32Array(r.outWidth * r.outHeight);

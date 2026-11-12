@@ -64,14 +64,15 @@ export interface Preprocessing {
   curve: number;
   curveSigma: number;
   /**
-   * Edge boost in [0, 1]: blends the grey image toward an outline map, so
-   * flat areas fade out. The map is the gradient magnitude of a Gaussian
-   * blur of `edgeSigma` source pixels (a step of height h gives h), divided
-   * by its 98th percentile over the image (at least 0.05) and soft
-   * thresholded between 0.1 and 0.6. The lines take the image's polarity:
-   * dark on white when the mean of the blurred grey image is above one
-   * half, light on black otherwise. 0 keeps the image, 1 leaves only the
-   * outlines.
+   * Edge boost in [0, 1], guided by an edge map: the gradient magnitude of
+   * a Gaussian blur of `edgeSigma` source pixels (a step of height h gives
+   * h), divided by its 98th percentile over the image (at least 0.05) and
+   * soft thresholded between 0.1 and 0.6. Up to 0.6 the image only fades
+   * into the background away from edges (nothing is drawn over it); from
+   * 0.6 to 1 what is left turns into lines, so 1 leaves only the outlines.
+   * Background and lines take the image's polarity: dark lines on white
+   * when the mean of the blurred grey image is above one half, light lines
+   * on black otherwise. 0 keeps the image.
    */
   edges: number;
   edgeSigma: number;

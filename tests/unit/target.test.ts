@@ -223,11 +223,11 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   });
 
   it("boosts edges by fading flat areas out until only outlines remain", async () => {
-    // Flat areas have no outlines: they fade to the background, black for a
-    // dark image and white for a light one.
+    // Flat areas have no edges: they fade to the background, black for a
+    // dark image and white for a light one, fully at 0.6 and beyond.
     const flatGrey = solid(30, 20, [90, 90, 90, 255]);
     expect((await prepare(request(flatGrey, 30, 20, 30, 20, { edges: 1, edgeSigma: 2 }))).every((v) => v < 1e-3)).toBe(true);
-    const half = await prepare(request(flatGrey, 30, 20, 30, 20, { edges: 0.5, edgeSigma: 2 }));
+    const half = await prepare(request(flatGrey, 30, 20, 30, 20, { edges: 0.3, edgeSigma: 2 }));
     expect(half.every((v) => Math.abs(v - (0.5 * 90) / 255) < 2e-3)).toBe(true);
     const flatLight = solid(30, 20, [200, 200, 200, 255]);
     expect((await prepare(request(flatLight, 30, 20, 30, 20, { edges: 1, edgeSigma: 2 }))).every((v) => v > 1 - 1e-3)).toBe(true);
@@ -255,10 +255,28 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
       const flipped = await prepare(request(stepImage(lo, hi), w, 8, w, 8, { edges: 1, edgeSigma: 1.5, invert: true }));
       expect(maxDiff(flipped, out.map((v) => 1 - v))).toBeLessThan(2e-3);
     }
-    // In between, edges stand out while flat areas move toward the background.
-    const mid = (await prepare(request(stepImage(60, 120), w, 8, w, 8, { edges: 0.5, edgeSigma: 1.5 }))).subarray(4 * w, 5 * w);
-    expect(mid[w - 3]).toBeCloseTo((0.5 * 120) / 255, 2);
-    expect(Math.max(mid[at - 1], mid[at])).toBeGreaterThan(0.6);
+    // Up to 0.6 nothing is drawn over the image: it only fades into the
+    // background away from edges (darker for a dark image, lighter for a
+    // light one), keeping its own pixels at edges.
+    for (const [lo, hi] of [
+      [60, 120],
+      [140, 230],
+    ]) {
+      const plain = await prepare(request(stepImage(lo, hi), w, 8, w, 8));
+      const toward = (lo + hi) / 2 > 127.5 ? 1 : -1;
+      for (const edges of [0.25, 0.5, 0.6]) {
+        const out = await prepare(request(stepImage(lo, hi), w, 8, w, 8, { edges, edgeSigma: 1.5 }));
+        expect(out.every((v, i) => (v - plain[i]) * toward > -2e-3)).toBe(true);
+        expect(Math.abs(out[4 * w + at] - plain[4 * w + at])).toBeLessThan(0.02);
+        const flat = Math.min(1, edges / 0.6);
+        const bg = toward > 0 ? 1 : 0;
+        expect(out[4 * w + w - 3]).toBeCloseTo(bg + (plain[4 * w + w - 3] - bg) * (1 - flat), 2);
+      }
+      // Beyond it, what is left turns into lines.
+      const late = await prepare(request(stepImage(lo, hi), w, 8, w, 8, { edges: 0.8, edgeSigma: 1.5 }));
+      const line = toward > 0 ? 0 : 1;
+      expect(Math.abs(late[4 * w + at] - line)).toBeLessThan(Math.abs(plain[4 * w + at] - line));
+    }
     // A thin dark line on white stays a dark line on white.
     const line = solid(w, 8, [240, 240, 240, 255]);
     for (let y = 0; y < 8; y++) line.set([20, 20, 20, 255], (y * w + 20) * 4);
