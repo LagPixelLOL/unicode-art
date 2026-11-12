@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cssFont, planAtlas } from "../../src/art/atlas";
+import { cssFont, isBlank, planAtlas } from "../../src/art/atlas";
 import { advanceAgrees, charsetKey, fontAdvance } from "../../src/art/charset";
-import type { ArtResult } from "../../src/art/generate";
+import { type ArtResult, trimTrailingBlanks } from "../../src/art/generate";
 import { DEFAULT_PREPROCESS, EDGE_SIGMA_CELLS, MAX_EDGE_AMOUNT, toPreprocessing } from "../../src/art/preprocess";
 import { DEFAULT_CH_EM, MAX_GLYPH_CELLS, computeGeometry, rowCount, selectGlyphs } from "../../src/art/geometry";
 import { baselineTolerance, domTolerance, evaluateDom, fontSegments } from "../../src/art/verify";
@@ -402,9 +402,46 @@ describe("ui helpers", () => {
     expect(fitFontSize({ boxW: 800, boxH: 100, contentWEm: 40, contentHEm: 20 })).toBe(5);
     expect(fitFontSize({ boxW: 0, boxH: 100, contentWEm: 40, contentHEm: 20 })).toBe(0);
     const r = fakeResult();
-    expect(contentSizeEm(r)).toEqual({ contentWEm: 18 / 20, contentHEm: 3 * r.geometry.lineHeightEm });
+    // The frame of the sampled image, however far the rows reach.
+    const frame = r.geometry.widthPx / r.geometry.fontPx;
+    expect(contentSizeEm(r)).toEqual({ contentWEm: frame, contentHEm: 3 * r.geometry.lineHeightEm });
     r.layout.rowWidths.fill(0);
-    expect(contentSizeEm(r).contentWEm).toBe(r.geometry.widthPx / r.geometry.fontPx);
+    expect(contentSizeEm(r).contentWEm).toBe(frame);
+    r.layout.rowWidths[0] = r.geometry.widthPx * 1.5;
+    expect(contentSizeEm(r).contentWEm).toBe(frame * 1.5);
+  });
+
+  it("trims blanks at the end of rows only", () => {
+    // Glyph 0 and 2 are blank. Rows: ink blank ink blank blank | blank blank | blank ink | ink.
+    const layout = {
+      glyphs: Uint32Array.from([1, 0, 1, 2, 0, 0, 2, 0, 1, 1]),
+      positions: Float32Array.from([0, 2, 3.5, 5, 6.25, 0, 1, 0, 1.5, 0]),
+      rowOffsets: Uint32Array.from([0, 5, 7, 9, 10]),
+      rowWidths: Float32Array.from([7.5, 2, 3, 1]),
+      totalCost: 3,
+      ms: { score: 1, solve: 2 },
+    };
+    const t = trimTrailingBlanks(layout, Uint8Array.from([1, 0, 1]));
+    expect([...t.glyphs]).toEqual([1, 0, 1, 0, 1, 1]);
+    expect([...t.positions]).toEqual([0, 2, 3.5, 0, 1.5, 0]);
+    expect([...t.rowOffsets]).toEqual([0, 3, 3, 5, 6]);
+    expect([...t.rowWidths]).toEqual([5, 0, 3, 1]);
+    expect([t.totalCost, t.ms]).toEqual([3, layout.ms]);
+    // Nothing blank: unchanged.
+    const same = trimTrailingBlanks(layout, new Uint8Array(3));
+    expect([...same.glyphs]).toEqual([...layout.glyphs]);
+    expect([...same.rowWidths]).toEqual([...layout.rowWidths]);
+  });
+
+  it("detects blank glyph cells", () => {
+    const page = new Uint8Array(4 * 3 * 4);
+    page[(1 * 4 + 2) * 4] = 9;
+    expect(isBlank(page, 4, 0, 0, 2, 3)).toBe(true);
+    expect(isBlank(page, 4, 1, 0, 2, 2)).toBe(false);
+    expect(isBlank(page, 4, 0, 2, 4, 1)).toBe(true);
+    // Only the red channel counts, like the glyph bank.
+    page[1] = 255;
+    expect(isBlank(page, 4, 0, 0, 1, 1)).toBe(true);
   });
 
   it("places popovers inside the viewport", () => {

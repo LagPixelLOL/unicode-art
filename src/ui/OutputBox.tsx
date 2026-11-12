@@ -34,10 +34,11 @@ export function fitFontSize({ boxW, boxH, contentWEm, contentHEm }: FitInput): n
   return Math.min(boxW / contentWEm, boxH / contentHEm);
 }
 
+/** The sampled image's frame: rows may end early where only blanks would follow. */
 export function contentSizeEm(r: ArtResult): { contentWEm: number; contentHEm: number } {
   const widest = r.layout.rowWidths.reduce((m, w) => Math.max(m, w), 0);
   return {
-    contentWEm: (widest || r.geometry.widthPx) / r.geometry.fontPx,
+    contentWEm: Math.max(widest, r.geometry.widthPx) / r.geometry.fontPx,
     contentHEm: r.rows * r.geometry.lineHeightEm,
   };
 }

@@ -81,8 +81,21 @@ const RASTER_SLICE = 512;
 
 export const nextTask = () => new Promise<void>((r) => setTimeout(r, 0));
 
+export interface RasterPage extends GlyphPage {
+  /** 1 for every glyph of the page that drew no ink at all, margins included. */
+  blank: Uint8Array;
+}
+
+/** Whether the `w` x `h` rectangle at (x, y) of an RGBA page has no ink. */
+export function isBlank(rgba: ArrayLike<number>, pageW: number, x: number, y: number, w: number, h: number): boolean {
+  for (let yy = y; yy < y + h; yy++) {
+    for (let i = (yy * pageW + x) * 4; i < (yy * pageW + x + w) * 4; i += 4) if (rgba[i] !== 0) return false;
+  }
+  return true;
+}
+
 /** Draws every glyph with its own font, white on black, page by page. */
-export async function* rasterizeGlyphs(req: RasterRequest, signal?: AbortSignal): AsyncGenerator<GlyphPage> {
+export async function* rasterizeGlyphs(req: RasterRequest, signal?: AbortSignal): AsyncGenerator<RasterPage> {
   const margin = Math.ceil(req.fontPx / 2);
   const plan = planAtlas(req.widths, req.cellH, margin);
   const ctx = textContext(plan.pageW, plan.pageH);
@@ -106,8 +119,13 @@ export async function* rasterizeGlyphs(req: RasterRequest, signal?: AbortSignal)
     }
     signal?.throwIfAborted();
     const img = ctx.getImageData(0, 0, plan.pageW, plan.pageH);
+    const blank = Uint8Array.from(ids, (g) => {
+      const s = plan.slots[g];
+      return isBlank(img.data, plan.pageW, s.x - margin, s.y - margin, req.widths[g] + 2 * margin, req.cellH + 2 * margin) ? 1 : 0;
+    });
     yield {
       rgba: img.data,
+      blank,
       width: plan.pageW,
       xs: Uint32Array.from(ids, (g) => plan.slots[g].x),
       ys: Uint32Array.from(ids, (g) => plan.slots[g].y),

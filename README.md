@@ -32,6 +32,10 @@ ready to copy.
   boost, each usable on its own or with any of the others.
 - Nothing runs until you press Start. While converting, Start becomes Cancel,
   which stops the work immediately.
+- Blank characters (any glyph that draws no ink, such as the many Unicode
+  spaces) at the end of a line are dropped, since nothing follows them.
+  Leading and inner blanks stay: the text is left aligned, so they position
+  what comes after them.
 - The output is scaled to fit its box exactly (letterboxed with black where
   the aspect ratio differs). Copy text copies it to the clipboard, and Copy
   escaped copies it with every ASCII punctuation character backslash escaped,

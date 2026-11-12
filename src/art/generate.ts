@@ -59,6 +59,37 @@ interface BankEntry {
   handle: GlyphBankHandle;
   codepoints: Uint32Array;
   fonts: Uint32Array;
+  /** 1 for glyphs that draw no ink. */
+  blank: Uint8Array;
+}
+
+/**
+ * Drops the glyphs at the end of every row that draw no ink (spaces and
+ * other blank characters), which change nothing visible since the text is
+ * left aligned. Leading and inner blanks stay: they position what follows.
+ */
+export function trimTrailingBlanks(layout: LayoutResult, blank: ArrayLike<number>): LayoutResult {
+  const rows = layout.rowWidths.length;
+  const keep: number[] = [];
+  const rowOffsets = new Uint32Array(rows + 1);
+  const rowWidths = new Float32Array(rows);
+  for (let r = 0; r < rows; r++) {
+    const start = layout.rowOffsets[r];
+    const end = layout.rowOffsets[r + 1];
+    let last = end;
+    while (last > start && blank[layout.glyphs[last - 1]]) last--;
+    for (let i = start; i < last; i++) keep.push(i);
+    rowOffsets[r + 1] = keep.length;
+    // The pen position where the first dropped glyph would have started.
+    rowWidths[r] = last === end ? layout.rowWidths[r] : last === start ? 0 : layout.positions[last];
+  }
+  return {
+    ...layout,
+    glyphs: Uint32Array.from(keep, (i) => layout.glyphs[i]),
+    positions: Float32Array.from(keep, (i) => layout.positions[i]),
+    rowOffsets,
+    rowWidths,
+  };
 }
 
 const yieldToBrowser = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -150,7 +181,7 @@ export class ArtGenerator {
 
     t = performance.now();
     progress("match", 0);
-    const layout = await this.backend.layout({
+    const solved = await this.backend.layout({
       bank: bank.handle,
       target,
       rows,
@@ -159,6 +190,7 @@ export class ArtGenerator {
       signal,
       onProgress: (f) => progress("match", f),
     });
+    const layout = trimTrailingBlanks(solved, bank.blank);
     ms.match = performance.now() - t;
 
     const lines: string[] = [];
@@ -213,6 +245,7 @@ export class ArtGenerator {
     if (n === 0) throw new Error("No character has a usable width at this detail level.");
     const codepoints = Uint32Array.from(selection.charsetIndex, (i) => charset.codepoints[i]);
     const fonts = Uint32Array.from(selection.charsetIndex, (i) => charset.fontIndex[i]);
+    const blank = new Uint8Array(n);
     const builder = await this.backend.createGlyphBankBuilder(geometry.cellH);
     let done = 0;
     progress(0);
@@ -229,6 +262,7 @@ export class ArtGenerator {
       signal,
     )) {
         throwIfAborted(signal);
+        page.glyphs.forEach((g, k) => (blank[g] = page.blank[k]));
         await builder.addPage(page);
         done += page.glyphs.length;
         progress(done / n);
@@ -239,6 +273,6 @@ export class ArtGenerator {
       throw e;
     }
     const handle = await builder.build();
-    return { key, geometry, selection, handle, codepoints, fonts };
+    return { key, geometry, selection, handle, codepoints, fonts, blank };
   }
 }

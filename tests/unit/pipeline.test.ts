@@ -4,11 +4,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { type FontRef, buildCharset } from "../../src/art/charset";
 import { ArtGenerator, type SourceImage } from "../../src/art/generate";
-import { verifyCanvas } from "../../src/art/verify";
+import { fontSegments, verifyCanvas } from "../../src/art/verify";
 import { isAbort } from "../../src/engine/backend";
 import { WebGpuWasmBackend } from "../../src/engine/webgpu-wasm/backend";
 import { loadCore } from "./helpers/core";
-import { fakeFonts, fakeOptions, installFakeCanvas, resetFake } from "./helpers/fakeCanvas";
+import { fakeFonts, fakeOptions, inkFraction, installFakeCanvas, resetFake } from "./helpers/fakeCanvas";
 import { requireGpuNotice } from "./helpers/gpu";
 
 installFakeCanvas();
@@ -101,9 +101,12 @@ describe.skipIf(!device)("conversion pipeline", () => {
     expect(r.rows).toBe(r.lines.length);
     expect(r.text).toBe(r.lines.join("\n"));
     const widthPx = OPTIONS.widthCells * OPTIONS.detail;
+    const blank = (cp: number) => cp === 0x20 || inkFraction(cp) === 0;
     for (let row = 0; row < r.rows; row++) {
-      expect(r.layout.rowWidths[row]).toBeLessThanOrEqual(widthPx + 1e-3);
-      expect(r.layout.rowWidths[row]).toBeGreaterThan(widthPx - 1.2 * OPTIONS.detail * 1.1);
+      // The dark right half only needs blanks, which are trimmed.
+      expect(r.layout.rowWidths[row]).toBeLessThanOrEqual(widthPx / 2 + 3 * OPTIONS.detail);
+      expect(r.layout.rowWidths[row]).toBeGreaterThan(widthPx / 2 - 1.2 * OPTIONS.detail * 1.1);
+      expect(blank(r.lines[row].codePointAt(r.lines[row].length - 1)!)).toBe(false);
       // Bright left half gets denser glyphs than the dark right half.
       const a = r.layout.rowOffsets[row];
       const b = r.layout.rowOffsets[row + 1];
@@ -118,6 +121,12 @@ describe.skipIf(!device)("conversion pipeline", () => {
       expect(left).toBeGreaterThan(right);
     }
     expect(r.stats.cached).toEqual({ charset: false, glyphs: false });
+    // Flipped, the rows start with blanks, which are kept, and reach the right edge.
+    const flipped = await gen.generate(fonts, halves(120, 60), { ...OPTIONS, preprocess: { ...PLAIN, invert: true } });
+    for (let row = 0; row < flipped.rows; row++) {
+      expect(blank(flipped.lines[row].codePointAt(0)!)).toBe(true);
+      expect(flipped.layout.rowWidths[row]).toBeGreaterThan(widthPx - 1.2 * OPTIONS.detail * 1.1);
+    }
     expect(r.stats.characters).toBe(r.layout.glyphs.length);
     expect(r.provided).toEqual([6, 2]);
 
@@ -140,7 +149,9 @@ describe.skipIf(!device)("conversion pipeline", () => {
 
   it("verifies native rendering and detects a browser that resolves fonts differently", async () => {
     const gen = new ArtGenerator(backend);
-    const r = await gen.generate(fonts, halves(90, 60), OPTIONS);
+    // Flipped, rows start with blanks of the first font and end with glyphs of the second.
+    const r = await gen.generate(fonts, halves(90, 60), { ...OPTIONS, preprocess: { ...PLAIN, invert: true } });
+    expect(new Set(fontSegments(r, 0).map((s) => s.font))).toEqual(new Set([0, 1]));
     const ok = await verifyCanvas(r, backend);
     expect(ok.pass).toBe(true);
     expect(ok.maxAdvanceError).toBeLessThan(1e-6);
