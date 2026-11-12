@@ -304,7 +304,7 @@ describe("App", () => {
       expect(prepareTarget.mock.lastCall?.[0]).toMatchObject({
         outWidth: 20,
         outHeight: 10,
-        preprocessing: { invert: false, contrast: 1, edgeAmount: 0 },
+        preprocessing: { invert: false, clipLimit: 16, curve: 0.75, edges: 0 },
       }),
     );
     await waitFor(() => expect(screen.getByTestId("preview").getAttribute("aria-busy")).toBe("false"));

@@ -2,7 +2,7 @@
 
 import type { Preprocessing } from "../../../src/engine/backend";
 import type { PackedBank } from "../../../src/engine/webgpu-wasm/matcher";
-import { planBlur } from "../../../src/engine/webgpu-wasm/plan";
+import { planBlur, planTiles } from "../../../src/engine/webgpu-wasm/plan";
 import type { loadCore } from "./core";
 
 export const INVALID = 3.0e38;
@@ -118,9 +118,10 @@ export function linearToSrgb(v: number): number {
   return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
-/** S-curve of the contrast boost around the mean grey `m` (see target.wgsl). */
-export function contrastCurve(v: number, m: number, c: number): number {
-  if (c <= 0 || m <= 0 || m >= 1) return v;
+/** S-curve of the contrast boost around the local mean `m` (see target.wgsl). */
+export function contrastCurve(v: number, m0: number, c: number): number {
+  if (c <= 0) return v;
+  const m = Math.min(1 - 1e-6, Math.max(1e-6, m0));
   if (c >= 1) return v < m ? 0 : v === m ? m : 1;
   const k = 1 / (1 - c);
   return v < m ? m * (v / m) ** k : 1 - (1 - m) * ((1 - v) / (1 - m)) ** k;
@@ -136,22 +137,74 @@ export interface OracleRequest {
   preprocessing: Preprocessing;
 }
 
+/** Contrast limited adaptive histogram equalization (see target.wgsl). */
+export function referenceEqualize(grey: Float64Array, w: number, h: number, clipLimit: number, tileSize: number): Float64Array {
+  const BINS = 256;
+  const tiles = planTiles(w, h, tileSize);
+  const start = (i: number, n: number, size: number) => Math.floor((i * size) / n);
+  const luts: Float64Array[] = [];
+  for (let ty = 0; ty < tiles.y; ty++) {
+    for (let tx = 0; tx < tiles.x; tx++) {
+      const hist = new Float64Array(BINS);
+      let n = 0;
+      for (let y = start(ty, tiles.y, h); y < start(ty + 1, tiles.y, h); y++) {
+        for (let x = start(tx, tiles.x, w); x < start(tx + 1, tiles.x, w); x++, n++) {
+          hist[Math.min(Math.floor(grey[y * w + x] * BINS), BINS - 1)]++;
+        }
+      }
+      const cap = (clipLimit * n) / BINS;
+      const excess = hist.reduce((sum, c) => sum + Math.max(0, c - cap), 0);
+      const lut = new Float64Array(BINS + 1);
+      for (let b = 0; b < BINS; b++) lut[b + 1] = lut[b] + (Math.min(hist[b], cap) + excess / BINS) / n;
+      luts.push(lut);
+    }
+  }
+  const lookup = (tile: number, v: number) => {
+    const pos = Math.min(1, Math.max(0, v)) * BINS;
+    const b = Math.min(Math.floor(pos), BINS - 1);
+    return luts[tile][b] + (luts[tile][b + 1] - luts[tile][b]) * (pos - b);
+  };
+  const tw = w / tiles.x;
+  const th = h / tiles.y;
+  return grey.map((v, i) => {
+    const fx = Math.min(tiles.x - 1, Math.max(0, ((i % w) + 0.5) / tw - 0.5));
+    const fy = Math.min(tiles.y - 1, Math.max(0, (Math.floor(i / w) + 0.5) / th - 0.5));
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = Math.min(x0 + 1, tiles.x - 1);
+    const y1 = Math.min(y0 + 1, tiles.y - 1);
+    const at = (tx: number, ty: number) => lookup(ty * tiles.x + tx, v);
+    const top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * (fx - x0);
+    const bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * (fx - x0);
+    return top + (bottom - top) * (fy - y0);
+  });
+}
+
 /** Grey values of the image after flip and contrast boost (see target.wgsl). */
 export function referenceGrey(r: OracleRequest): Float64Array {
-  const { invert, contrast } = r.preprocessing;
-  const grey = new Float64Array(r.width * r.height);
+  const { invert, clipLimit, tileSize, curve } = r.preprocessing;
+  let grey: Float64Array = new Float64Array(r.width * r.height);
   for (let i = 0; i < grey.length; i++) {
     const a = r.rgba[i * 4 + 3];
     const ch = (k: number) => srgbToLinear(Math.floor((r.rgba[i * 4 + k] * a + 255 * (255 - a) + 127) / 255) / 255);
     const v = linearToSrgb(0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2));
     grey[i] = invert ? 1 - v : v;
   }
-  const mean = grey.reduce((s, v) => s + v, 0) / grey.length;
-  return grey.map((v) => contrastCurve(v, mean, contrast));
+  if (clipLimit > 1) grey = referenceEqualize(grey, r.width, r.height, clipLimit, tileSize);
+  if (curve <= 0) return grey;
+  const mean = referenceBlur(grey, r.width, r.height, r.preprocessing.curveSigma);
+  return grey.map((v, i) => contrastCurve(v, mean[i], curve));
 }
 
-/** The unsharp mask's blur on the coarse grid, sampled at every pixel. */
-export function referenceBlur(grey: Float64Array, w: number, h: number, sigma: number): Float64Array {
+interface RefGrid {
+  values: Float64Array;
+  w: number;
+  h: number;
+  step: number;
+}
+
+/** A blur of `sigma` on the coarse grid (see planBlur and target.wgsl). */
+export function referenceGrid(grey: Float64Array, w: number, h: number, sigma: number): RefGrid {
   const { step, sigma: gs, radius } = planBlur(sigma);
   const gw = Math.ceil(w / step);
   const gh = Math.ceil(h / step);
@@ -163,8 +216,8 @@ export function referenceBlur(grey: Float64Array, w: number, h: number, sigma: n
       const cy = (gy + 0.5) * step - 0.5;
       let sum = 0;
       let total = 0;
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
+      for (let y = Math.max(0, Math.floor(cy - step) + 1); y < Math.min(h, Math.ceil(cy + step)); y++) {
+        for (let x = Math.max(0, Math.floor(cx - step) + 1); x < Math.min(w, Math.ceil(cx + step)); x++) {
           const wt = tent(x - cx) * tent(y - cy);
           sum += wt * grey[y * w + x];
           total += wt;
@@ -193,21 +246,68 @@ export function referenceBlur(grey: Float64Array, w: number, h: number, sigma: n
   };
   pass(1, 0);
   pass(0, 1);
+  return { values: grid, w: gw, h: gh, step };
+}
+
+/** Grid values at every pixel, interpolated linearly. */
+export function sampleGrid(g: RefGrid, w: number, h: number): Float64Array {
   const out = new Float64Array(w * h);
   for (let y = 0; y < h; y++) {
-    const v = Math.min(gh - 1, Math.max(0, (y + 0.5) / step - 0.5));
+    const v = Math.min(g.h - 1, Math.max(0, (y + 0.5) / g.step - 0.5));
     const y0 = Math.floor(v);
-    const y1 = Math.min(y0 + 1, gh - 1);
+    const y1 = Math.min(y0 + 1, g.h - 1);
     for (let x = 0; x < w; x++) {
-      const u = Math.min(gw - 1, Math.max(0, (x + 0.5) / step - 0.5));
+      const u = Math.min(g.w - 1, Math.max(0, (x + 0.5) / g.step - 0.5));
       const x0 = Math.floor(u);
-      const x1 = Math.min(x0 + 1, gw - 1);
-      const top = grid[y0 * gw + x0] + (grid[y0 * gw + x1] - grid[y0 * gw + x0]) * (u - x0);
-      const bottom = grid[y1 * gw + x0] + (grid[y1 * gw + x1] - grid[y1 * gw + x0]) * (u - x0);
+      const x1 = Math.min(x0 + 1, g.w - 1);
+      const at = (xx: number, yy: number) => g.values[yy * g.w + xx];
+      const top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * (u - x0);
+      const bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * (u - x0);
       out[y * w + x] = top + (bottom - top) * (v - y0);
     }
   }
   return out;
+}
+
+/** The coarse grid blur sampled at every pixel. */
+export function referenceBlur(grey: Float64Array, w: number, h: number, sigma: number): Float64Array {
+  return sampleGrid(referenceGrid(grey, w, h, sigma), w, h);
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+/** The outline drawing edge boosting blends toward, in the image's polarity (see target.wgsl). */
+export function referenceOutlines(grey: Float64Array, w: number, h: number, sigma: number): Float64Array {
+  const g = referenceGrid(grey, w, h, sigma);
+  const at = (x: number, y: number) => g.values[y * g.w + x];
+  const magnitude = new Float64Array(g.values.length);
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const [xl, xr, yl, yr] = [Math.max(x - 1, 0), Math.min(x + 1, g.w - 1), Math.max(y - 1, 0), Math.min(y + 1, g.h - 1)];
+      const gx = xr > xl ? (at(xr, y) - at(xl, y)) / ((xr - xl) * g.step) : 0;
+      const gy = yr > yl ? (at(x, yr) - at(x, yl)) / ((yr - yl) * g.step) : 0;
+      magnitude[y * g.w + x] = Math.hypot(gx, gy) * sigma * Math.sqrt(2 * Math.PI);
+    }
+  }
+  const hist = new Float64Array(256);
+  for (const m of magnitude) hist[Math.min(Math.floor(m * 256), 255)]++;
+  let level = 1;
+  for (let b = 0, sum = 0; b < 256; b++) {
+    sum += hist[b];
+    if (sum >= 0.98 * magnitude.length) {
+      level = (b + 1) / 256;
+      break;
+    }
+  }
+  level = Math.max(level, 0.05);
+  const light = g.values.reduce((sum, v) => sum + v, 0) / g.values.length > 0.5;
+  return sampleGrid({ ...g, values: magnitude }, w, h).map((m) => {
+    const line = smoothstep(0.1, 0.6, m / level);
+    return light ? 1 - line : line;
+  });
 }
 
 /** Source pixels and normalized weights per output sample along one axis. */
@@ -232,10 +332,10 @@ function referenceTaps(n: number, m: number): { first: number; weights: number[]
 
 /** CPU oracle of the whole target preparation. */
 export function referenceTarget(r: OracleRequest): Float32Array {
-  const { edgeAmount, edgeSigma } = r.preprocessing;
+  const { edges, edgeSigma } = r.preprocessing;
   const grey = referenceGrey(r);
-  const blurred = edgeAmount > 0 ? referenceBlur(grey, r.width, r.height, edgeSigma) : null;
-  const lin = grey.map((v, i) => srgbToLinear(blurred ? Math.min(1, Math.max(0, v + edgeAmount * (v - blurred[i]))) : v));
+  const outlines = edges > 0 ? referenceOutlines(grey, r.width, r.height, edgeSigma) : null;
+  const lin = grey.map((v, i) => srgbToLinear(outlines ? v + (outlines[i] - v) * edges : v));
   const tx = referenceTaps(r.width, r.outWidth);
   const ty = referenceTaps(r.height, r.outHeight);
   const out = new Float32Array(r.outWidth * r.outHeight);

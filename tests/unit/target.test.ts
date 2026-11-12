@@ -11,7 +11,7 @@ import { requireGpuNotice } from "./helpers/gpu";
 import { type OracleRequest, contrastCurve, referenceBlur, referenceTarget, rng } from "./helpers/reference";
 
 const device = await requireGpuNotice();
-const PLAIN: Preprocessing = { invert: false, contrast: 0, edgeAmount: 0, edgeSigma: 1 };
+const PLAIN: Preprocessing = { invert: false, clipLimit: 1, tileSize: 16, curve: 0, curveSigma: 4, edges: 0, edgeSigma: 1 };
 
 function solid(w: number, h: number, px: number[]): Uint8Array {
   return Uint8Array.from({ length: w * h * 4 }, (_, i) => px[i % 4]);
@@ -20,13 +20,6 @@ function solid(w: number, h: number, px: number[]): Uint8Array {
 function noise(w: number, h: number, seed: number): Uint8Array {
   const rand = rng(seed);
   return Uint8Array.from({ length: w * h * 4 }, () => Math.floor(rand() * 256));
-}
-
-/** Left half black, right half white. */
-function step(w: number, h: number): Uint8Array {
-  const rgba = new Uint8Array(w * h * 4);
-  for (let i = 0; i < w * h; i++) rgba.set(i % w < w / 2 ? [0, 0, 0, 255] : [255, 255, 255, 255], i * 4);
-  return rgba;
 }
 
 type Request = OracleRequest & { signal?: AbortSignal };
@@ -43,6 +36,13 @@ async function prepareWith(preparer: TargetPreparer, r: Request): Promise<Float3
   } finally {
     image.dispose();
   }
+}
+
+/** Mean step between neighbouring columns 4 to 28 of row 16 (the stripes). */
+function stripes(out: Float32Array, w: number): number {
+  let sum = 0;
+  for (let x = 4; x < 28; x++) sum += Math.abs(out[16 * w + x] - out[16 * w + x + 1]);
+  return sum / 24;
 }
 
 function maxDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -141,15 +141,17 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     }
   });
 
-  it("boosts contrast around the mean grey, keeping black and white", async () => {
+  it("applies the S-curve around the local mean, keeping black and white", async () => {
     const levels = [0, 64, 100, 192, 255];
     const greys = Uint8Array.from(levels.flatMap((c) => [c, c, c, 255]));
-    const mean = levels.reduce((s, c) => s + c / 255, 0) / levels.length;
-    const at = async (contrast: number, invert = false) => [...(await prepare(request(greys, 5, 1, 5, 1, { contrast, invert })))];
+    // A radius far beyond the image: every pixel's local mean is about the mean.
+    const mean = referenceBlur(Float64Array.from(levels, (c) => c / 255), 5, 1, 1000);
+    const at = async (curve: number, invert = false) =>
+      [...(await prepare(request(greys, 5, 1, 5, 1, { curve, curveSigma: 1000, invert })))];
     const plain = await at(0);
     for (const [i, c] of levels.entries()) expect(plain[i]).toBeCloseTo(c / 255, 3);
     const half = await at(0.5);
-    for (const [i, c] of levels.entries()) expect(half[i]).toBeCloseTo(contrastCurve(c / 255, mean, 0.5), 3);
+    for (const [i, c] of levels.entries()) expect(half[i]).toBeCloseTo(contrastCurve(c / 255, mean[i], 0.5), 3);
     expect([half[0], half[4]]).toEqual([plain[0], plain[4]]);
     // Darker below the mean, brighter above it, more so with a stronger boost.
     const strong = await at(0.9);
@@ -164,37 +166,112 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     for (let i = 0; i < 5; i++) expect(flipped[i]).toBeCloseTo(1 - half[i], 3);
   });
 
-  it("pivots the contrast boost on the image's own mean", async () => {
-    // A dark image: its brighter pixels get brighter, though below mid grey.
-    const dark = Uint8Array.from([30, 30, 30, 90].flatMap((c) => [c, c, c, 255]));
-    const out = await prepare(request(dark, 4, 1, 4, 1, { contrast: 0.5 }));
-    expect(out[3]).toBeGreaterThan(90 / 255 + 0.05);
-    expect(out[0]).toBeLessThan(30 / 255);
+  it("pivots the S-curve on the local mean, so every region keeps its detail", async () => {
+    // Faint dark stripes (strokes on a black glove) next to a bright area.
+    const w = 64;
+    const rgba = new Uint8Array(w * 32 * 4);
+    for (let i = 0; i < w * 32; i++) {
+      const c = i % w < 32 ? (i % 2 ? 50 : 30) : 230;
+      rgba.set([c, c, c, 255], i * 4);
+    }
+    const at = (pre: Partial<Preprocessing>) => prepare(request(rgba, w, 32, w, 32, pre));
+    const plain = await at({});
+    // Pivoting on the mean of the whole image crushes the stripes, a local
+    // pivot spreads them, and the dark area stays dark.
+    const wide = await at({ curve: 0.75, curveSigma: 1000 });
+    const local = await at({ curve: 0.75, curveSigma: 4 });
+    expect(stripes(wide, w)).toBeLessThan(0.5 * stripes(plain, w));
+    expect(stripes(local, w)).toBeGreaterThan(2 * stripes(plain, w));
+    expect(local[16 * w + 10]).toBeLessThan(0.3);
+    expect(local[16 * w + 54]).toBeGreaterThan(0.85);
     // A uniform image has nothing to spread.
-    const flat = await prepare(request(solid(9, 7, [77, 77, 77, 255]), 9, 7, 3, 2, { contrast: 0.8 }));
+    const flat = await prepare(request(solid(9, 7, [77, 77, 77, 255]), 9, 7, 3, 2, { curve: 0.8 }));
     expect(flat.every((v) => Math.abs(v - 77 / 255) < 2e-3)).toBe(true);
-    expect((await prepare(request(solid(2, 2, [0, 0, 0, 255]), 2, 2, 1, 1, { contrast: 1 })))[0]).toBeCloseTo(0, 4);
+    expect((await prepare(request(solid(2, 2, [0, 0, 0, 255]), 2, 2, 1, 1, { curve: 1 })))[0]).toBeCloseTo(0, 4);
   });
 
-  it("boosts edges with an unsharp mask that leaves flat areas alone", async () => {
-    const flat = await prepare(request(solid(30, 20, [90, 90, 90, 255]), 30, 20, 30, 20, { edgeAmount: 2, edgeSigma: 2 }));
-    expect(flat.every((v) => Math.abs(v - 90 / 255) < 2e-3)).toBe(true);
-    // A grey step edge: overshoot on both sides near the edge only.
-    const w = 40;
-    const rgba = new Uint8Array(w * 4 * 4);
-    for (let i = 0; i < w * 4; i++) rgba.set(i % w < w / 2 ? [60, 60, 60, 255] : [180, 180, 180, 255], i * 4);
-    const plain = await prepare(request(rgba, w, 4, w, 4));
-    const boosted = await prepare(request(rgba, w, 4, w, 4, { edgeAmount: 1, edgeSigma: 2 }));
-    const row = (a: Float32Array) => a.subarray(w, 2 * w);
-    expect(row(boosted)[w / 2 - 1]).toBeLessThan(row(plain)[w / 2 - 1] - 0.03);
-    expect(row(boosted)[w / 2]).toBeGreaterThan(row(plain)[w / 2] + 0.03);
-    expect(Math.abs(row(boosted)[0] - row(plain)[0])).toBeLessThan(2e-3);
-    expect(Math.abs(row(boosted)[w - 1] - row(plain)[w - 1])).toBeLessThan(2e-3);
-    // A stronger amount boosts more, and black and white edges stay in range.
-    const strong = await prepare(request(rgba, w, 4, w, 4, { edgeAmount: 2, edgeSigma: 2 }));
-    expect(row(strong)[w / 2]).toBeGreaterThan(row(boosted)[w / 2]);
-    const hard = await prepare(request(step(w, 4), w, 4, w, 4, { edgeAmount: 2, edgeSigma: 3 }));
-    expect(hard.every((v) => v >= 0 && v <= 1)).toBe(true);
+  it("equalizes tile by tile, so dark regions keep their detail", async () => {
+    // A dark region of faint stripes (like strokes on a black glove) next to
+    // a bright one.
+    const w = 64;
+    const rgba = new Uint8Array(w * 32 * 4);
+    for (let i = 0; i < w * 32; i++) {
+      const x = i % w;
+      const c = x < 32 ? (x % 2 ? 50 : 30) : 230;
+      rgba.set([c, c, c, 255], i * 4);
+    }
+    const at = (pre: Partial<Preprocessing>) => prepare(request(rgba, w, 32, w, 32, { tileSize: 32, ...pre }));
+    const plain = await at({});
+    const equalized = await at({ clipLimit: 16 });
+    const both = await at({ clipLimit: 16, curve: 0.75, curveSigma: 4 });
+    expect(stripes(equalized, w)).toBeGreaterThan(1.5 * stripes(plain, w));
+    expect(stripes(both, w)).toBeGreaterThan(2 * stripes(plain, w));
+    // The dark region stays darker than the bright one.
+    for (const out of [equalized, both]) expect(out[16 * w + 10]).toBeLessThan(out[16 * w + 50]);
+    // A clip limit of 1 changes nothing.
+    expect(maxDiff(await at({ clipLimit: 1 }), plain)).toBeLessThan(2e-3);
+    // The limit bounds how much the noise of a nearly flat image spreads.
+    const rand = rng(5);
+    const flat = Uint8Array.from({ length: 40 * 40 * 4 }, (_, i) => (i % 4 === 3 ? 255 : 120 + Math.floor(rand() * 3)));
+    for (const clipLimit of [2, 16]) {
+      const out = await prepare(request(flat, 40, 40, 40, 40, { clipLimit, tileSize: 20 }));
+      const spread = Math.max(...out) - Math.min(...out);
+      // Capped bins add up to the limit to the slope, the spread excess up to 1.
+      expect(spread).toBeLessThanOrEqual((clipLimit + 1) * (2 / 255) * 1.05);
+      expect(spread).toBeGreaterThan(2 / 255);
+    }
+  });
+
+  it("boosts edges by fading flat areas out until only outlines remain", async () => {
+    // Flat areas have no outlines: they fade to the background, black for a
+    // dark image and white for a light one.
+    const flatGrey = solid(30, 20, [90, 90, 90, 255]);
+    expect((await prepare(request(flatGrey, 30, 20, 30, 20, { edges: 1, edgeSigma: 2 }))).every((v) => v < 1e-3)).toBe(true);
+    const half = await prepare(request(flatGrey, 30, 20, 30, 20, { edges: 0.5, edgeSigma: 2 }));
+    expect(half.every((v) => Math.abs(v - (0.5 * 90) / 255) < 2e-3)).toBe(true);
+    const flatLight = solid(30, 20, [200, 200, 200, 255]);
+    expect((await prepare(request(flatLight, 30, 20, 30, 20, { edges: 1, edgeSigma: 2 }))).every((v) => v > 1 - 1e-3)).toBe(true);
+    // A step edge, a third of the way across: an outline along it, however
+    // faint the step, in the image's polarity.
+    const w = 48;
+    const at = w / 3;
+    const stepImage = (lo: number, hi: number) => {
+      const rgba = new Uint8Array(w * 8 * 4);
+      for (let i = 0; i < w * 8; i++) rgba.set(i % w < at ? [lo, lo, lo, 255] : [hi, hi, hi, 255], i * 4);
+      return rgba;
+    };
+    for (const [lo, hi, light] of [
+      [0, 255, true],
+      [60, 85, false],
+    ] as const) {
+      const out = await prepare(request(stepImage(lo, hi), w, 8, w, 8, { edges: 1, edgeSigma: 1.5 }));
+      const row = out.subarray(4 * w, 5 * w);
+      const line = light ? Math.min(row[at - 1], row[at]) : Math.max(row[at - 1], row[at]);
+      const background = light ? 1 : 0;
+      expect(Math.abs(line - (1 - background))).toBeLessThan(0.05);
+      expect(Math.abs(row[2] - background)).toBeLessThan(1e-3);
+      expect(Math.abs(row[w - 3] - background)).toBeLessThan(1e-3);
+      // Flipped, the image and so the drawing swap polarity.
+      const flipped = await prepare(request(stepImage(lo, hi), w, 8, w, 8, { edges: 1, edgeSigma: 1.5, invert: true }));
+      expect(maxDiff(flipped, out.map((v) => 1 - v))).toBeLessThan(2e-3);
+    }
+    // In between, edges stand out while flat areas move toward the background.
+    const mid = (await prepare(request(stepImage(60, 120), w, 8, w, 8, { edges: 0.5, edgeSigma: 1.5 }))).subarray(4 * w, 5 * w);
+    expect(mid[w - 3]).toBeCloseTo((0.5 * 120) / 255, 2);
+    expect(Math.max(mid[at - 1], mid[at])).toBeGreaterThan(0.6);
+    // A thin dark line on white stays a dark line on white.
+    const line = solid(w, 8, [240, 240, 240, 255]);
+    for (let y = 0; y < 8; y++) line.set([20, 20, 20, 255], (y * w + 20) * 4);
+    const lined = (await prepare(request(line, w, 8, w, 8, { edges: 1, edgeSigma: 1 }))).subarray(4 * w, 5 * w);
+    expect(Math.min(lined[19], lined[20], lined[21])).toBeLessThan(0.1);
+    expect(lined[5]).toBeGreaterThan(1 - 1e-3);
+    // The noise of a nearly flat image is not an outline.
+    for (const base of [120, 200]) {
+      const rand = rng(8);
+      const noisy = Uint8Array.from({ length: 40 * 40 * 4 }, (_, i) => (i % 4 === 3 ? 255 : base + Math.floor(rand() * 2)));
+      const out = await prepare(request(noisy, 40, 40, 40, 40, { edges: 1, edgeSigma: 1 }));
+      expect(out.every((v) => (base > 128 ? v > 0.95 : v < 0.05))).toBe(true);
+    }
   });
 
   it("matches the CPU oracle for every combination of preprocessing steps", async () => {
@@ -207,13 +284,18 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     for (const [w, h, ow, oh] of shapes) {
       const rgba = noise(w, h, seed++);
       for (const invert of [false, true]) {
-        for (const contrast of [0, 0.6]) {
-          for (const [edgeAmount, edgeSigma] of [
+        for (const contrast of [
+          { clipLimit: 1, curve: 0 },
+          { clipLimit: 1, curve: 0.6, curveSigma: 3 },
+          { clipLimit: 6, tileSize: 16, curve: 0 },
+          { clipLimit: 12, tileSize: 9, curve: 0.45, curveSigma: 7 },
+        ]) {
+          for (const [edges, edgeSigma] of [
             [0, 1],
-            [1.3, 1.5],
-            [0.8, 9],
+            [1, 1.5],
+            [0.6, 9],
           ]) {
-            const r = request(rgba, w, h, ow, oh, { invert, contrast, edgeAmount, edgeSigma });
+            const r = request(rgba, w, h, ow, oh, { invert, ...contrast, edges, edgeSigma });
             expect(maxDiff(await prepare(r), referenceTarget(r)), JSON.stringify(r.preprocessing)).toBeLessThan(5e-4);
           }
         }
@@ -222,7 +304,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   });
 
   it("splits tall outputs into chunks without changing the result", async () => {
-    const r = request(noise(30, 90, 7), 30, 90, 13, 41, { invert: true, contrast: 0.6, edgeAmount: 1, edgeSigma: 5 });
+    const r = request(noise(30, 90, 7), 30, 90, 13, 41, { invert: true, clipLimit: 8, tileSize: 20, curve: 0.5, curveSigma: 6, edges: 0.7, edgeSigma: 5 });
     const whole = await prepare(r);
     const chunked = await prepareWith(new TargetPreparer(device!, { chunkBytes: 13 * 4 * 6 }), r);
     expect(maxDiff(whole, chunked)).toBe(0);
@@ -230,7 +312,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   });
 
   it("can be cancelled and keeps working afterwards", async () => {
-    const r = request(noise(40, 40, 9), 40, 40, 20, 20, { edgeAmount: 1, edgeSigma: 3 });
+    const r = request(noise(40, 40, 9), 40, 40, 20, 20, { clipLimit: 4, tileSize: 10, curve: 0.5, edges: 1, edgeSigma: 3 });
     const pre = new AbortController();
     pre.abort();
     expect(isAbort(await prepare({ ...r, signal: pre.signal }).catch((e) => e))).toBe(true);
@@ -252,11 +334,20 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
     await expect(prepare(request(new Uint8Array(4), 2, 1, 1, 1))).rejects.toThrow(/does not match/);
     await expect(prepare(request(new Uint8Array(4), 1, 1, 0, 1))).rejects.toThrow(/positive/);
     await expect(prepare(request(new Uint8Array(4), 1, 1, 1.5, 1))).rejects.toThrow(/positive/);
-    for (const contrast of [-1, 1.5, Number.NaN]) {
-      await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { contrast }))).rejects.toThrow(/contrast/);
+    for (const curve of [-1, 1.5, Number.NaN]) {
+      await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { curve }))).rejects.toThrow(/curve/);
     }
-    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edgeAmount: -1 }))).rejects.toThrow(/amount/);
-    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edgeAmount: 1, edgeSigma: 0 }))).rejects.toThrow(/radius/);
+    for (const clipLimit of [0.5, Infinity, Number.NaN]) {
+      await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { clipLimit }))).rejects.toThrow(/clip limit/);
+    }
+    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { clipLimit: 2, tileSize: 0 }))).rejects.toThrow(/tile size/);
+    // A tile size is only needed when equalizing.
+    expect((await prepare(request(solid(1, 1, [255, 255, 255, 255]), 1, 1, 1, 1, { tileSize: 0 })))[0]).toBeCloseTo(1, 3);
+    for (const edges of [-1, 1.5, Number.NaN]) {
+      await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edges }))).rejects.toThrow(/edge boost/);
+    }
+    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { edges: 1, edgeSigma: 0 }))).rejects.toThrow(/edge boost radius/);
+    await expect(prepare(request(new Uint8Array(4), 1, 1, 1, 1, { curve: 0.5, curveSigma: 0 }))).rejects.toThrow(/curve radius/);
     // A radius is only needed when edges are boosted.
     expect((await prepare(request(solid(1, 1, [255, 255, 255, 255]), 1, 1, 1, 1, { edgeSigma: 0 })))[0]).toBeCloseTo(1, 3);
     const limits = { maxStorageBufferBindingSize: 8, maxBufferSize: 1 << 30, maxComputeWorkgroupsPerDimension: 65535 };
@@ -272,7 +363,7 @@ describe.skipIf(!device)("WebGPU target preparation", () => {
   });
 
   it("keeps an uploaded image for many requests and releases it once unused", async () => {
-    const r = request(noise(24, 16, 11), 24, 16, 6, 4, { contrast: 0.4, edgeAmount: 1, edgeSigma: 2 });
+    const r = request(noise(24, 16, 11), 24, 16, 6, 4, { clipLimit: 4, tileSize: 8, curve: 0.4, edges: 0.8, edgeSigma: 2 });
     const image = await backend.uploadImage(r.rgba, r.width, r.height);
     expect([image.width, image.height]).toEqual([24, 16]);
     const at = (preprocessing: Preprocessing) => backend.prepareTarget({ image, outWidth: 6, outHeight: 4, preprocessing });

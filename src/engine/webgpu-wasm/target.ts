@@ -2,16 +2,49 @@
 
 import { type ImageHandle, type TargetRequest, checkImage, checkTargetRequest, throwIfAborted } from "../backend";
 import { abortable } from "./matcher";
-import { type DeviceLimits, planBlur, planTargetChunks } from "./plan";
+import { type DeviceLimits, planBlur, planTargetChunks, planTiles } from "./plan";
 import shaderSource from "./target.wgsl?raw";
 
 /** Invocations per side of a workgroup (WG in the shader). */
 export const TARGET_WORKGROUP = 8;
-/** Invocations per workgroup of the row sums (ROWS_WG in the shader). */
-const ROWS_WORKGROUP = 64;
-const ENTRY_POINTS = ["mean_rows", "mean_total", "reduce", "blur_x", "blur_y", "resample"] as const;
+const ENTRY_POINTS = [
+  "clahe_tiles",
+  "reduce_mean",
+  "blur_mean_x",
+  "blur_mean_y",
+  "reduce_edge",
+  "blur_edge_x",
+  "blur_edge_y",
+  "edge_magnitude",
+  "edge_hist",
+  "edge_level",
+  "resample",
+] as const;
+/** Histogram bins per tile (BINS in the shader). */
+const BINS = 256;
 type EntryPoint = (typeof ENTRY_POINTS)[number];
-const PARAM_BYTES = 64;
+const PARAM_BYTES = 128;
+/** Workgroups that histogram the outline map (HIST_GROUPS in the shader). */
+const MAX_HIST_GROUPS = 1024;
+
+interface GridPlan {
+  w: number;
+  h: number;
+  step: number;
+  sigma: number;
+  radius: number;
+  /** Offsets of the grid's two buffers in the shared grid buffer, in values. */
+  a: number;
+  b: number;
+}
+
+/** Blur grids for `sigma` (or none) laid out from offset `at`. */
+function gridPlan(width: number, height: number, sigma: number | null, at: number): GridPlan {
+  const plan = sigma === null ? { step: 1, sigma: 1, radius: 1 } : planBlur(sigma);
+  const w = sigma === null ? 0 : Math.ceil(width / plan.step);
+  const h = sigma === null ? 0 : Math.ceil(height / plan.step);
+  return { ...plan, w, h, a: at, b: at + w * h };
+}
 
 /** Source pixels on the GPU. The buffer lives until disposed and no longer in use. */
 export class GpuImage implements ImageHandle {
@@ -123,11 +156,13 @@ export class TargetPreparer {
     const { device } = this;
     const pipelines = await abortable(this.compile(), signal);
     const pre = req.preprocessing;
-    const contrast = pre.contrast > 0;
-    const boost = pre.edgeAmount > 0;
-    const blur = boost ? planBlur(pre.edgeSigma) : { step: 1, sigma: 1, radius: 1 };
-    const gridW = Math.ceil(r.width / blur.step);
-    const gridH = Math.ceil(r.height / blur.step);
+    const equalize = pre.clipLimit > 1;
+    const curve = pre.curve > 0;
+    const boost = pre.edges > 0;
+    const tiles = equalize ? planTiles(r.width, r.height, pre.tileSize) : { x: 1, y: 1 };
+    const mean = gridPlan(r.width, r.height, curve ? pre.curveSigma : null, 0);
+    const edge = gridPlan(r.width, r.height, boost ? pre.edgeSigma : null, mean.b + mean.w * mean.h);
+    const gridValues = edge.b + edge.w * edge.h;
     const chunkRows = Math.min(r.outHeight, planTargetChunks(r.outWidth, this.limits, TARGET_WORKGROUP, this.tuning.chunkBytes));
     const chunkBytes = chunkRows * r.outWidth * 4;
 
@@ -139,22 +174,29 @@ export class TargetPreparer {
     };
     try {
       const params = buffer("target params", PARAM_BYTES, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-      const gridBytes = boost ? gridW * gridH * 4 : 0;
-      const gridA = buffer("blur grid a", gridBytes, GPUBufferUsage.STORAGE);
-      const gridB = buffer("blur grid b", gridBytes, GPUBufferUsage.STORAGE);
+      const grids = buffer("blur grids", gridValues * 4, GPUBufferUsage.STORAGE);
       const out = buffer("target", chunkBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const read = buffer("target readback", chunkBytes, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-      const stats = buffer("grey statistics", contrast ? (r.height + 1) * 4 : 0, GPUBufferUsage.STORAGE);
+      const luts = buffer("tile lookup tables", equalize ? tiles.x * tiles.y * (BINS + 1) * 4 : 0, GPUBufferUsage.STORAGE);
+      const edgeStats = buffer("outline statistics", (BINS + 4 + MAX_HIST_GROUPS) * 4, GPUBufferUsage.STORAGE);
       const bindGroup = device.createBindGroup({
         layout: this.layout,
-        entries: [params, src, gridA, gridB, out, stats].map((b, binding) => ({ binding, resource: { buffer: b } })),
+        entries: [params, src, grids, out, luts, edgeStats].map((b, binding) => ({ binding, resource: { buffer: b } })),
       });
 
       const words = new ArrayBuffer(PARAM_BYTES);
       const u32 = new Uint32Array(words);
       const f32 = new Float32Array(words);
-      u32.set([r.width, r.height, r.outWidth, r.outHeight, 0, 0, gridW, gridH, blur.step, blur.radius, pre.invert ? 1 : 0, boost ? 1 : 0]);
-      f32.set([pre.contrast, pre.edgeAmount, blur.sigma], 12);
+      const flag = (on: boolean) => (on ? 1 : 0);
+      u32.set([r.width, r.height, r.outWidth, r.outHeight, 0, 0, flag(pre.invert), flag(boost), flag(equalize), flag(curve), tiles.x, tiles.y]);
+      f32.set([pre.curve, pre.edges, pre.clipLimit, pre.edgeSigma * Math.sqrt(2 * Math.PI)], 12);
+      for (const [g, at] of [
+        [mean, 16],
+        [edge, 24],
+      ] as const) {
+        u32.set([g.w, g.h, g.step, g.radius, 0, g.a, g.b], at);
+        f32[at + 4] = g.sigma;
+      }
 
       const result = new Float32Array(r.outWidth * r.outHeight);
       const groups = (n: number) => Math.ceil(n / TARGET_WORKGROUP);
@@ -167,16 +209,30 @@ export class TargetPreparer {
         const enc = device.createCommandEncoder();
         const pass = enc.beginComputePass();
         pass.setBindGroup(0, bindGroup);
-        if (contrast && row === 0) {
-          pass.setPipeline(pipelines.mean_rows);
-          pass.dispatchWorkgroups(Math.ceil(r.height / ROWS_WORKGROUP));
-          pass.setPipeline(pipelines.mean_total);
-          pass.dispatchWorkgroups(1);
-        }
-        if (boost && row === 0) {
-          for (const e of ["reduce", "blur_x", "blur_y"] as const) {
-            pass.setPipeline(pipelines[e]);
-            pass.dispatchWorkgroups(groups(gridW), groups(gridH));
+        if (row === 0) {
+          if (equalize) {
+            pass.setPipeline(pipelines.clahe_tiles);
+            pass.dispatchWorkgroups(tiles.x, tiles.y);
+          }
+          // The local mean first: the edge boost blurs the curved image.
+          const blurs: [boolean, GridPlan, readonly EntryPoint[]][] = [
+            [curve, mean, ["reduce_mean", "blur_mean_x", "blur_mean_y"]],
+            [boost, edge, ["reduce_edge", "blur_edge_x", "blur_edge_y"]],
+          ];
+          for (const [on, g, entries] of blurs) {
+            if (!on) continue;
+            for (const e of entries) {
+              pass.setPipeline(pipelines[e]);
+              pass.dispatchWorkgroups(groups(g.w), groups(g.h));
+            }
+          }
+          if (boost) {
+            pass.setPipeline(pipelines.edge_magnitude);
+            pass.dispatchWorkgroups(groups(edge.w), groups(edge.h));
+            pass.setPipeline(pipelines.edge_hist);
+            pass.dispatchWorkgroups(Math.min(Math.ceil((edge.w * edge.h) / BINS), MAX_HIST_GROUPS));
+            pass.setPipeline(pipelines.edge_level);
+            pass.dispatchWorkgroups(1);
           }
         }
         pass.setPipeline(pipelines.resample);

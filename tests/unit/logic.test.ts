@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { cssFont, isBlank, planAtlas } from "../../src/art/atlas";
 import { advanceAgrees, charsetKey, fontAdvance } from "../../src/art/charset";
 import { type ArtResult, trimTrailingBlanks } from "../../src/art/generate";
-import { DEFAULT_PREPROCESS, EDGE_SIGMA_CELLS, MAX_EDGE_AMOUNT, toPreprocessing } from "../../src/art/preprocess";
+import {
+  CONTRAST_TILE_CELLS,
+  CURVE_SIGMA_CELLS,
+  DEFAULT_PREPROCESS,
+  EDGE_SIGMA_CELLS,
+  MAX_CLIP_LIMIT,
+  MAX_CURVE,
+  toPreprocessing,
+} from "../../src/art/preprocess";
 import { DEFAULT_CH_EM, MAX_GLYPH_CELLS, computeGeometry, rowCount, selectGlyphs } from "../../src/art/geometry";
 import { baselineTolerance, domTolerance, evaluateDom, fontSegments } from "../../src/art/verify";
 import { AbortedError, type BackendFactory, isAbort, throwIfAborted } from "../../src/engine/backend";
@@ -354,11 +362,15 @@ describe("ui helpers", () => {
     // 1600 source pixels over 80 cells: 20 source pixels per cell, at any detail.
     expect(toPreprocessing({ invert: true, contrast: 0.3, edges: 0.5 }, 1600, 80)).toEqual({
       invert: true,
-      contrast: 0.3,
-      edgeAmount: 0.5 * MAX_EDGE_AMOUNT,
+      clipLimit: 1 + 0.3 * (MAX_CLIP_LIMIT - 1),
+      tileSize: CONTRAST_TILE_CELLS * 20,
+      curve: 0.3 * MAX_CURVE,
+      curveSigma: CURVE_SIGMA_CELLS * 20,
+      edges: 0.5,
       edgeSigma: EDGE_SIGMA_CELLS * 20,
     });
-    expect(toPreprocessing({ invert: false, contrast: 1, edges: 0 }, 1600, 80).edgeAmount).toBe(0);
+    // Strength 0 turns both boosts off.
+    expect(toPreprocessing({ invert: false, contrast: 0, edges: 0 }, 1600, 80)).toMatchObject({ clipLimit: 1, curve: 0, edges: 0 });
     // Enlarged images blur at least one source pixel.
     expect(toPreprocessing(DEFAULT_PREPROCESS, 20, 80).edgeSigma).toBe(1);
   });

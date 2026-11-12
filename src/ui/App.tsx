@@ -382,8 +382,9 @@ export function App({ backend }: { backend: ComputeBackend }) {
                 Applied to the grey image, in this order; each step works on its own. The preview next to the image
                 shows the result as the conversion will see it. Bright
                 areas get dense characters, as the output is light text on black; flipping inverts that. Contrast
-                boost spreads tones away from the image's mean grey (1 leaves only black and white). Edge boost
-                sharpens contours so characters follow them. 0 turns either boost off.
+                boost raises contrast region by region, so dark and bright areas keep their detail. Edge boost
+                fades flat areas into the background; at 1 only the outlines are left, dark on light images and light
+                on dark ones. 0 turns either boost off.
               </p>
             </div>
           </Section>

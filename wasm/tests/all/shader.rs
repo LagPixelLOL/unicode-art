@@ -46,19 +46,25 @@ fn target_shader_is_valid() {
     assert!(src.is_ascii());
     validate(&src);
     let module = naga::front::wgsl::parse_str(&src).unwrap();
-    let entries: Vec<_> = module
+    let mut entries: Vec<_> = module
         .entry_points
         .iter()
         .map(|e| e.name.as_str())
         .collect();
+    entries.sort_unstable();
     assert_eq!(
         entries,
         [
-            "mean_rows",
-            "mean_total",
-            "reduce",
-            "blur_x",
-            "blur_y",
+            "blur_edge_x",
+            "blur_edge_y",
+            "blur_mean_x",
+            "blur_mean_y",
+            "clahe_tiles",
+            "edge_hist",
+            "edge_level",
+            "edge_magnitude",
+            "reduce_edge",
+            "reduce_mean",
             "resample"
         ]
     );

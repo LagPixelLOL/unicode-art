@@ -109,33 +109,33 @@ and each one works with or without the others:
 1. Flip black and white: inverts the grey image, so dark areas get dense
    characters. Flipping before resampling keeps the tone of fine textures (a
    fine checkerboard stays the same grey).
-2. Contrast boost (0 to 1, default 0.5): an S-curve around the mean grey of
-   the image, with slope `1 / (1 - strength)` at the mean. Black, white and
-   the mean stay where they are, so nothing clips, and pivoting on the mean
-   keeps dark and bright images balanced. 0 keeps the image, 1 leaves only
-   black and white.
-3. Edge boost (0 to 1, default 0.5): an unsharp mask, grey plus
-   `8 * strength` times the difference to a Gaussian blur of the grey image,
-   clamped. The blur radius (sigma) is one cell, converted to source pixels,
-   so the effect looks the same for any image size; narrower halos average
-   out within a character. 0 turns it off. The blur runs on a grid coarser
-   than the image (tent weighted block averages, a separable Gaussian and
-   linear interpolation back), so its cost does not grow with the radius.
+2. Contrast boost (0 to 1, default 0.5), guided by local contrast so that
+   dark or bright regions keep their detail (a global curve would crush a
+   black glove or wash out white hair):
+   - Contrast limited adaptive histogram equalization (CLAHE): tiles of
+     about 10 cells are equalized with their histograms clipped at
+     `1 + 15 * strength` times the mean bin count (the excess is spread over
+     all bins), and every pixel blends the four nearest tiles. The limit
+     bounds how much flat areas and noise are stretched; 1 changes nothing.
+   - An S-curve then spreads every pixel away from its local mean (a
+     Gaussian blur of 4 cells), with slope `1 / (1 - 0.75 * strength)` at the
+     mean. Black, white and the local mean stay where they are.
+   0 keeps the image.
+3. Edge boost (0 to 1, default 0.5): blends the image toward an outline
+   drawing, so flat areas fade into the background and at 1 only the
+   outlines remain. The drawing takes the image's polarity: dark lines on
+   white when the image is light (its mean grey is above one half), light
+   lines on black when it is dark, so flipping swaps them. The map is the gradient
+   magnitude of the grey image blurred over a quarter cell (so outlines
+   follow details but survive at character resolution), divided by its 98th
+   percentile over the image so faint and strong edges both reach full ink
+   (with a floor that keeps noise out), and soft thresholded so weak texture
+   drops out. 0 turns it off.
 
-### Verification
-
-Each result is checked twice, and the outcome is shown in the status panel:
-
-- Native text render vs computed glyphs: every line is drawn as one native
-  text run with the full font stack, and separately as runs of the glyphs
-  matched with each font, drawn with only that font. The two images are
-  compared (after a 1 pixel blur). In addition, the width of every line as
-  one run is compared with the sum of its glyphs measured one by one. This
-  catches wrong font fallback, shaping, and advances that change in context
-  (for example characters that the browser clusters with their neighbour).
-- Page layout vs computed positions: the rendered page is measured (line
-  widths, sampled glyph positions, baseline and text content) and compared
-  with the computed layout at the displayed font size.
+Every radius is measured in cells, converted to source pixels, so the
+effect looks the same at any image size. Blurs run on a grid coarser than
+the image (tent weighted block averages, a separable Gaussian and linear
+interpolation back), so their cost does not grow with the radius.
 
 ## Excluded characters
 

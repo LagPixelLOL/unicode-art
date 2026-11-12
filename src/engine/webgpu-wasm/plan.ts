@@ -212,3 +212,12 @@ export function planTargetChunks(outWidth: number, limits: DeviceLimits, workgro
   if (rows < 1) throw new Error("The output is too wide for the GPU buffer limits; reduce the width.");
   return rows;
 }
+
+/** Smallest tile side worth equalizing on its own, in pixels. */
+export const MIN_TILE = 16;
+
+/** Tiles of about `tileSize` pixels across the image, each at least MIN_TILE wide. */
+export function planTiles(width: number, height: number, tileSize: number): { x: number; y: number } {
+  const count = (size: number) => Math.max(1, Math.min(Math.round(size / tileSize), Math.floor(size / MIN_TILE)));
+  return { x: count(width), y: count(height) };
+}

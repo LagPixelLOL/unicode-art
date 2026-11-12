@@ -45,17 +45,35 @@ export interface Preprocessing {
   /** Flips black and white. */
   invert: boolean;
   /**
-   * Contrast boost in [0, 1]: an S-curve around the mean grey of the image
-   * with slope 1 / (1 - contrast) at the mean. Black, white and the mean
-   * stay; 0 keeps the image and 1 thresholds it at the mean.
+   * Contrast limited adaptive histogram equalization (CLAHE): tiles of
+   * about `tileSize` source pixels are equalized with their histograms
+   * clipped at `clipLimit` times the mean bin count (the excess is spread
+   * over all bins), and every pixel blends the four nearest tiles. Dark or
+   * bright regions keep their detail; the limit keeps flat areas from
+   * turning into noise. 1 turns it off.
    */
-  contrast: number;
+  clipLimit: number;
+  tileSize: number;
   /**
-   * Edge boost as an unsharp mask: grey + amount * (grey - blurred grey),
-   * clamped to [0, 1]. 0 turns it off.
+   * S-curve after equalizing that spreads every pixel away from its local
+   * mean (a Gaussian blur of `curveSigma` source pixels), with slope
+   * 1 / (1 - curve) at the mean. Black, white and the mean stay, and
+   * regions keep their detail since each pivots on its own mean. 0 turns it
+   * off and 1 thresholds at the local mean.
    */
-  edgeAmount: number;
-  /** Standard deviation of the unsharp mask's Gaussian blur in source pixels. */
+  curve: number;
+  curveSigma: number;
+  /**
+   * Edge boost in [0, 1]: blends the grey image toward an outline map, so
+   * flat areas fade out. The map is the gradient magnitude of a Gaussian
+   * blur of `edgeSigma` source pixels (a step of height h gives h), divided
+   * by its 98th percentile over the image (at least 0.05) and soft
+   * thresholded between 0.1 and 0.6. The lines take the image's polarity:
+   * dark on white when the mean of the blurred grey image is above one
+   * half, light on black otherwise. 0 keeps the image, 1 leaves only the
+   * outlines.
+   */
+  edges: number;
   edgeSigma: number;
 }
 
@@ -95,9 +113,12 @@ export function checkImage(rgba: Uint8Array | Uint8ClampedArray, width: number, 
 export function checkTargetRequest(r: TargetRequest): void {
   if (!positiveInts(r.outWidth, r.outHeight)) throw new Error("Image dimensions must be positive integers.");
   const p = r.preprocessing;
-  if (!(p.contrast >= 0 && p.contrast <= 1)) throw new Error("The contrast boost must be a number from 0 to 1.");
-  if (!(p.edgeAmount >= 0 && Number.isFinite(p.edgeAmount))) throw new Error("The edge boost amount must be a finite number of at least 0.");
-  if (p.edgeAmount > 0 && !(p.edgeSigma > 0 && Number.isFinite(p.edgeSigma))) {
+  if (!(p.clipLimit >= 1 && Number.isFinite(p.clipLimit))) throw new Error("The contrast clip limit must be a finite number of at least 1.");
+  if (p.clipLimit > 1 && !(p.tileSize > 0 && Number.isFinite(p.tileSize))) throw new Error("The contrast tile size must be a positive finite number.");
+  if (!(p.curve >= 0 && p.curve <= 1)) throw new Error("The contrast curve must be a number from 0 to 1.");
+  if (p.curve > 0 && !(p.curveSigma > 0 && Number.isFinite(p.curveSigma))) throw new Error("The contrast curve radius must be a positive finite number.");
+  if (!(p.edges >= 0 && p.edges <= 1)) throw new Error("The edge boost must be a number from 0 to 1.");
+  if (p.edges > 0 && !(p.edgeSigma > 0 && Number.isFinite(p.edgeSigma))) {
     throw new Error("The edge boost radius must be a positive finite number.");
   }
 }
